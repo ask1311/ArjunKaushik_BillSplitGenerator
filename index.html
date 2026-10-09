@@ -175,7 +175,8 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
 .actions{display:flex; gap:12px; flex-wrap:wrap; margin-top:22px}
 .actions .btn-lilac{flex:1 1 220px}
 .note{color:var(--muted); font-size:.85rem; margin:16px 0 0}
-.version{color:var(--on-bg-muted); opacity:.4; text-align:center; font-size:.64rem; letter-spacing:.01em; margin:4px auto 30px; max-width:40ch}
+.version{color:var(--on-bg-muted); opacity:.4; text-align:center; font-size:.64rem; letter-spacing:.01em; margin:4px auto 6px; max-width:40ch}
+.byline{color:var(--on-bg-muted); opacity:.22; text-align:right; font-size:.56rem; letter-spacing:.02em; margin:0 0 18px}
 
 /* Confetti */
 .confetti{position:fixed; inset:0; pointer-events:none; z-index:80; overflow:hidden}
@@ -360,8 +361,9 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
       <p class="note" id="logNote" hidden>When you view the split bill, a copy is saved by the site owner for their records.</p>
     </section>
 
-    <!-- Version 16 -->
-    <p class="version">Made by Arjun Kaushik, for him and his friends, so nobody does maths at the table.</p>
+    <!-- Version 19 -->
+    <p class="version">Made for friends, so nobody does maths at the table.</p>
+    <p class="byline">By Arjun Kaushik</p>
   </main>
 </div>
 
@@ -746,27 +748,36 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
 
   /* ---------- Optional logging to a Google Sheet ---------- */
   let lastLogged = "";
-  function logBill(){
+  function logBill(pdfReady){
     if(!SHEET_URL) return;
     const { totals, tax, grand } = compute();
-    const body = JSON.stringify({
+    const payload = {
       people: state.people.map((_,i)=>nameOf(i)),
       items: state.items.map(it => ({ name:itemLabel(it), price:r2(it.price), sharedBy:it.shared.map(nameOf) })),
       tax: r2(tax), total: r2(grand),
       payer: state.payer >= 0 ? nameOf(state.payer) : "",
       owes: state.people.map((_,i)=>({ name:nameOf(i), amount:r2(totals[i]) }))
-    });
-    if(body === lastLogged) return;
-    lastLogged = body;
-    try{ fetch(SHEET_URL, { method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain;charset=utf-8"}, body }).catch(()=>{}); }catch(e){}
+    };
+    const key = JSON.stringify(payload);
+    if(key === lastLogged) return; // same bill viewed again: don't log twice
+    lastLogged = key;
+    payload.tag = currentTag;
+    const send = () => { try{ fetch(SHEET_URL, { method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain;charset=utf-8"}, body:JSON.stringify(payload) }).catch(()=>{}); }catch(e){} };
+    // Wait for the bill PDF so it can be attached to the email; send without it if it fails
+    Promise.resolve(pdfReady)
+      .then(async f => { if(f){ payload.pdfName = f.name; payload.pdf = await toBase64(f); } })
+      .catch(()=>{})
+      .then(send);
+  }
+  function toBase64(blob){
+    return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(blob); });
   }
   $("logNote").hidden = !SHEET_URL;
 
   $("viewBill").onclick = () => {
     pickTag();
     renderBill();
-    logBill();
-    preparePdf(); // build the PDF in the background so sharing is instant
+    logBill(preparePdf()); // build the PDF in the background, then log the bill with it attached
     $("app").hidden = true;
     $("billView").hidden = false;
     window.scrollTo({top:0});
