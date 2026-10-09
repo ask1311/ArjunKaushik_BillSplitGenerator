@@ -299,8 +299,10 @@ button:hover{border-color:var(--muted)}
   const nameOf = i => (state.people[i]||"").trim() || "Person " + (i+1);
   const esc = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
-  function load(){ try{ const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; }catch(e){ return null; } }
-  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} hideSplit(); }
+  // Every visit starts with a blank bill: nothing is kept between uses.
+  // Also clears anything saved by older versions of this page.
+  function load(){ try{ localStorage.removeItem(KEY); }catch(e){} return null; }
+  function save(){ hideSplit(); }
   // The split stays hidden until "Get the split" is tapped; any change hides it again.
   function hideSplit(){ const s = document.getElementById("splitOut"); if(s) s.hidden = true; }
   $("getSplit").onclick = () => {
@@ -710,6 +712,8 @@ button:hover{border-color:var(--muted)}
   const origRenderItems = renderItems;
   renderItems = function(){ origRenderItems(); $("s3").classList.toggle("locked", !state.locked || state.items.length===0); };
 
+  resetForm();
+  $("taxAmt").value = "";
   renderAll();
 })();
 </script>
