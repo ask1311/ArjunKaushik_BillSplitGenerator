@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Split the bill</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EDF1EE; --paper:#FFFFFF; --ink:#1D2A27; --muted:#5F6E69; --line:#D3DCD7;
+  --green:#21734F; --green-soft:#DCEFE4; --saffron:#E39B2D; --saffron-soft:#FBEBD0; --danger:#B4412F;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#121A18; --paper:#1A2422; --ink:#E7EFEB; --muted:#9AABA4; --line:#2E3C38;
+    --green:#5CC394; --green-soft:#1E3A2E; --saffron:#F0B457; --saffron-soft:#3A2E1B; --danger:#E77B67;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121A18; --paper:#1A2422; --ink:#E7EFEB; --muted:#9AABA4; --line:#2E3C38;
+  --green:#5CC394; --green-soft:#1E3A2E; --saffron:#F0B457; --saffron-soft:#3A2E1B; --danger:#E77B67;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Bricolage Grotesque",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16px; line-height:1.5; -webkit-font-smoothing:antialiased;
+}
+main{max-width:620px; margin:0 auto; padding:32px 20px 64px}
+h1{font-size:clamp(2.2rem,7vw,3.2rem); font-weight:800; line-height:1.02; letter-spacing:-.03em; margin:0 0 6px}
+.lede{color:var(--muted); margin:0 0 28px}
+section{background:var(--paper); border:1px solid var(--line); border-radius:18px; padding:22px; margin-bottom:16px}
+section.locked{opacity:.45; pointer-events:none}
+.step-head{display:flex; align-items:baseline; gap:12px; margin-bottom:14px}
+.step-num{font-weight:800; color:var(--green); font-size:1.1rem}
+h2{font-size:1.3rem; margin:0; font-weight:600; letter-spacing:-.01em}
+.step-head .edit{margin-left:auto}
+
+/* stepper */
+.stepper{display:flex; align-items:center; gap:18px; margin:4px 0 18px}
+.stepper button{width:52px; height:52px; border-radius:50%; font-size:1.6rem; line-height:1}
+.count{font-size:4rem; font-weight:800; min-width:1.4ch; text-align:center; letter-spacing:-.04em; font-variant-numeric:tabular-nums}
+.count-label{color:var(--muted)}
+
+.names{display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px; margin-bottom:18px}
+
+label.field{display:block; font-size:.88rem; color:var(--muted); margin-bottom:4px}
+input[type=text],input[type=number]{
+  width:100%; font:inherit; color:var(--ink); background:var(--bg);
+  border:1px solid var(--line); border-radius:10px; padding:10px 12px;
+}
+input:focus-visible,button:focus-visible{outline:3px solid var(--saffron); outline-offset:2px}
+input[type=number]{-moz-appearance:textfield}
+input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
+
+button{font:inherit; cursor:pointer; border:1px solid var(--line); background:var(--paper); color:var(--ink); border-radius:10px; padding:10px 14px}
+button:hover{border-color:var(--muted)}
+.primary{background:var(--green); color:var(--paper); border-color:var(--green); font-weight:600; padding:12px 18px}
+.primary:hover{filter:brightness(1.08); border-color:var(--green)}
+.link{background:none; border:none; padding:4px; color:var(--green); font-weight:600; text-decoration:underline; text-underline-offset:3px}
+
+.item-form{display:grid; grid-template-columns:1fr 130px; gap:12px}
+.item-form .full{grid-column:1/-1}
+.price-wrap{position:relative}
+.price-wrap span{position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--muted)}
+.price-wrap input{padding-left:26px}
+.error{color:var(--danger); font-size:.9rem; min-height:1.3em; margin:2px 0 0}
+
+/* multi-select dropdown */
+.ms{position:relative}
+.ms-btn{width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center; background:var(--bg); padding:10px 12px}
+.ms-btn .caret{transition:transform .15s}
+.ms[data-open] .caret{transform:rotate(180deg)}
+.ms-panel{position:absolute; z-index:10; left:0; right:0; top:calc(100% + 6px); background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:6px; box-shadow:0 12px 30px -12px rgba(0,0,0,.35); max-height:280px; overflow:auto}
+.ms-panel[hidden]{display:none}
+.ms-opt{display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:8px; cursor:pointer}
+.ms-opt:hover{background:var(--bg)}
+.ms-opt input{width:18px; height:18px; accent-color:var(--green)}
+.ms-all{border-bottom:1px solid var(--line); margin-bottom:4px; padding-bottom:10px; font-weight:600}
+
+.items{list-style:none; padding:0; margin:18px 0 0}
+.items li{display:grid; grid-template-columns:1fr auto auto; gap:4px 12px; align-items:start; padding:12px 0; border-top:1px dashed var(--line)}
+.items .nm{font-weight:600}
+.items .pr{font-variant-numeric:tabular-nums; font-weight:600}
+.items .who{grid-column:1/2; display:flex; flex-wrap:wrap; gap:6px}
+.chip{font-size:.8rem; background:var(--green-soft); color:var(--ink); border-radius:999px; padding:2px 10px}
+.acts{grid-row:1/3; grid-column:3; display:flex; gap:2px; align-items:center}
+.del,.ed{border:none; background:none; color:var(--muted); font-size:.9rem; padding:4px 6px}
+.del{font-size:1.2rem}
+.ed:hover{color:var(--green)}
+.items li.editing{background:var(--saffron-soft); border-radius:10px; padding-left:10px; padding-right:4px}
+.del:hover{color:var(--danger)}
+.empty{color:var(--muted); margin:16px 0 0}
+.subtotal{display:flex; justify-content:space-between; padding-top:12px; border-top:1px solid var(--line); margin-top:4px; font-weight:600}
+
+.extras{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px}
+
+/* results */
+.people-owe{list-style:none; padding:0; margin:0}
+.people-owe li{padding:14px 0; border-top:1px solid var(--line)}
+.people-owe li:first-child{border-top:none; padding-top:0}
+.row{display:flex; justify-content:space-between; align-items:baseline; gap:12px}
+.pname{font-weight:600; font-size:1.1rem}
+.amt{font-size:1.6rem; font-weight:800; letter-spacing:-.02em; font-variant-numeric:tabular-nums}
+.breakdown{color:var(--muted); font-size:.88rem; margin-top:4px}
+.settle{background:var(--saffron-soft); border-radius:12px; padding:14px 16px; margin-top:18px}
+.settle h3{margin:0 0 8px; font-size:1rem}
+.settle p{margin:4px 0}
+.grand{display:flex; justify-content:space-between; margin-top:16px; padding-top:14px; border-top:2px solid var(--ink); font-weight:800; font-size:1.15rem}
+.actions{display:flex; gap:10px; flex-wrap:wrap; margin-top:18px}
+
+/* split bill view */
+#billView{max-width:760px; margin:0 auto; padding:24px 20px 64px}
+.bill-bar{display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:26px}
+.bill{background:var(--paper); border-radius:4px; padding:36px 32px 44px; position:relative; box-shadow:0 24px 50px -30px rgba(0,0,0,.45)}
+.bill::before,.bill::after{content:""; position:absolute; left:0; right:0; height:12px; background-size:16px 12px; background-repeat:repeat-x}
+.bill::before{top:-11px; background-image:radial-gradient(circle at 8px 12px, var(--paper) 7px, transparent 7.5px)}
+.bill::after{bottom:-11px; background-image:radial-gradient(circle at 8px 0, var(--paper) 7px, transparent 7.5px)}
+.bill-head{display:flex; justify-content:space-between; align-items:flex-end; gap:20px; flex-wrap:wrap; padding-bottom:22px; border-bottom:2px dashed var(--line)}
+.bill-title{font-size:clamp(2rem,6vw,2.8rem); font-weight:800; letter-spacing:-.03em; line-height:1; margin:0 0 8px}
+.bill-meta{margin:0; color:var(--muted)}
+.bill-total{text-align:right}
+.bill-total span{display:block; color:var(--muted); font-size:.9rem}
+.bill-total strong{font-size:clamp(1.9rem,5.5vw,2.6rem); font-weight:800; color:var(--green); letter-spacing:-.03em; font-variant-numeric:tabular-nums}
+.bill-h{font-size:1.2rem; font-weight:600; margin:30px 0 12px}
+.owe-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px}
+.owe-card{background:var(--green-soft); border-radius:14px; padding:14px 16px}
+.owe-card.payer{background:var(--saffron-soft)}
+.oc-name{font-weight:600}
+.oc-amt{font-size:1.75rem; font-weight:800; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.2}
+.oc-note{font-size:.85rem; color:var(--muted)}
+.bill-settle{margin:12px 0 0; color:var(--muted)}
+.person-block{margin-top:22px; break-inside:avoid}
+.pb-head{display:flex; justify-content:space-between; align-items:baseline; border-bottom:2px solid var(--ink); padding-bottom:6px}
+.pb-head h3{margin:0; font-size:1.15rem}
+.pb-head span{font-weight:800; font-size:1.15rem; font-variant-numeric:tabular-nums}
+.pb-empty{color:var(--muted); margin:8px 0 0}
+.tbl-wrap{overflow-x:auto}
+.bill table{width:100%; border-collapse:collapse; min-width:440px}
+.bill th{text-align:left; font-weight:600; color:var(--muted); font-size:.85rem; padding:10px 8px 6px; border-bottom:1px solid var(--line)}
+.bill td{padding:9px 8px; border-bottom:1px dashed var(--line)}
+.bill .num{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+.bill tfoot td{border-bottom:none; color:var(--muted); padding-top:6px; padding-bottom:2px}
+.bill tfoot tr.tot td{color:var(--ink); font-weight:800; padding-top:10px; border-top:1px solid var(--line)}
+@media print{
+  :root,:root:not([data-theme="light"]),:root[data-theme="dark"]{--bg:#fff; --paper:#fff; --ink:#1D2A27; --muted:#5F6E69; --line:#C9D3CE; --green:#21734F; --green-soft:#DCEFE4; --saffron-soft:#FBEBD0}
+  body{background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact}
+  main,.bill-bar{display:none!important}
+  #billView{padding:0}
+  .bill{box-shadow:none; padding:0}
+  .bill::before,.bill::after{display:none}
+}
+@media (max-width:480px){
+  .bill{padding:28px 18px 34px}
+  .bill-total{text-align:left}
+}
+@media (max-width:480px){
+  .item-form{grid-template-columns:1fr}
+  .extras{grid-template-columns:1fr}
+  .count{font-size:3.2rem}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Who owes what</h1>
+  <p class="lede">Add what everyone ordered, pick who shared each dish, and get each person's share.</p>
+
+  <!-- Step 1 -->
+  <section id="s1">
+    <div class="step-head"><span class="step-num">1</span><h2>How many people went out?</h2>
+      <button class="link edit" id="editPeople" hidden>Edit</button></div>
+    <div id="peopleSetup">
+      <div class="stepper">
+        <button id="minus" aria-label="One fewer person">−</button>
+        <div><div class="count" id="count" aria-live="polite">2</div></div>
+        <button id="plus" aria-label="One more person">+</button>
+        <span class="count-label">people</span>
+      </div>
+      <div class="names" id="names"></div>
+      <button class="primary" id="startBtn">Start adding items</button>
+    </div>
+    <div id="peopleSummary" hidden></div>
+  </section>
+
+  <!-- Step 2 -->
+  <section id="s2" class="locked">
+    <div class="step-head"><span class="step-num">2</span><h2>Add items</h2></div>
+    <div class="item-form">
+      <div>
+        <label class="field" for="itemName">Item name <span style="opacity:.75">(optional)</span></label>
+        <input type="text" id="itemName" placeholder="e.g. Butter chicken" autocomplete="off">
+      </div>
+      <div>
+        <label class="field" for="itemPrice">Price</label>
+        <div class="price-wrap"><span>₹</span><input type="number" id="itemPrice" inputmode="decimal" min="0" step="0.01" placeholder="0"></div>
+      </div>
+      <div class="full">
+        <label class="field" id="msLabel">Split between</label>
+        <div class="ms" id="ms">
+          <button type="button" class="ms-btn" id="msBtn" aria-haspopup="listbox" aria-labelledby="msLabel msBtn">
+            <span id="msText">Everyone</span><span class="caret">▾</span>
+          </button>
+          <div class="ms-panel" id="msPanel" hidden></div>
+        </div>
+      </div>
+      <div class="full">
+        <button class="primary" id="addItem">Add item</button>
+        <button class="link" id="cancelEdit" hidden>Cancel editing</button>
+        <p class="error" id="itemError"></p>
+      </div>
+    </div>
+    <ul class="items" id="items"></ul>
+    <p class="empty" id="emptyItems">No items yet. Add the first one above.</p>
+    <div class="subtotal" id="subtotal" hidden><span>Items total</span><span id="subtotalAmt"></span></div>
+  </section>
+
+  <!-- Step 3 -->
+  <section id="s3" class="locked">
+    <div class="step-head"><span class="step-num">3</span><h2>Tax and who paid</h2></div>
+    <div class="extras">
+      <div>
+        <label class="field" for="taxAmt">Tax amount <span style="opacity:.75">(if applicable, split equally)</span></label>
+        <div class="price-wrap"><span>₹</span><input type="number" id="taxAmt" inputmode="decimal" min="0" step="0.01" placeholder="0"></div>
+      </div>
+      <div>
+        <label class="field" for="payer">Who paid the bill?</label>
+        <select id="payer" style="width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px"></select>
+      </div>
+    </div>
+    <button class="primary" id="getSplit">Get the split</button>
+  </section>
+
+  <section id="splitOut" hidden>
+    <div class="step-head"><span class="step-num">4</span><h2>Who owes what</h2></div>
+    <ul class="people-owe" id="results"></ul>
+    <div id="settle"></div>
+    <div class="grand"><span>Bill total</span><span id="grand"></span></div>
+    <div class="actions">
+      <button class="primary" id="viewBill">View split bill</button>
+      <button id="editBill">Edit bill</button>
+      <button id="copyBtn">Copy summary</button>
+      <button id="resetBtn">Start a new bill</button>
+    </div>
+    <p class="breakdown" id="logNote" hidden>When you view the split bill, a copy is saved by the site owner for their records.</p>
+  </section>
+</main>
+
+<div id="billView" hidden>
+  <div class="bill-bar">
+    <button id="backBtn">Back to editing</button>
+    <button class="primary" id="printBtn">Print or save as PDF</button>
+  </div>
+  <article class="bill" id="bill"></article>
+</div>
+
+<script>
+(function(){
+  const KEY = "bill-split-v1";
+  // Paste your Google Apps Script web app URL (ends in /exec) between the quotes to log every split bill.
+  const SHEET_URL = "";
+  let state = load() || { people:["",""], locked:false, items:[], tax:0, payer:-1 };
+  let selected = new Set();
+  let editingId = null;
+  const itemLabel = it => it.name || ("Item " + (state.items.indexOf(it) + 1));
+
+  const $ = id => document.getElementById(id);
+  const inr = n => "₹" + (Math.round(n*100)/100).toLocaleString("en-IN",{minimumFractionDigits: Number.isInteger(Math.round(n*100)/100)?0:2, maximumFractionDigits:2});
+  const nameOf = i => (state.people[i]||"").trim() || "Person " + (i+1);
+  const esc = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+  function load(){ try{ const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; }catch(e){ return null; } }
+  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} hideSplit(); }
+  // The split stays hidden until "Get the split" is tapped; any change hides it again.
+  function hideSplit(){ const s = document.getElementById("splitOut"); if(s) s.hidden = true; }
+  $("getSplit").onclick = () => {
+    if(!state.items.length) return;
+    renderResults();
+    $("splitOut").hidden = false;
+    $("splitOut").scrollIntoView({behavior:"smooth", block:"start"});
+  };
+
+  /* ---------- Step 1 ---------- */
+  function renderNames(){
+    $("count").textContent = state.people.length;
+    $("minus").disabled = state.people.length <= 2;
+    $("plus").disabled = state.people.length >= 30;
+    const wrap = $("names");
+    wrap.innerHTML = "";
+    state.people.forEach((n,i)=>{
+      const inp = document.createElement("input");
+      inp.type = "text"; inp.value = n; inp.placeholder = "Person " + (i+1);
+      inp.setAttribute("aria-label","Name of person " + (i+1));
+      inp.addEventListener("input", e => { state.people[i] = e.target.value; save(); });
+      inp.addEventListener("keydown", e => { if(e.key==="Enter") $("startBtn").click(); });
+      wrap.appendChild(inp);
+    });
+  }
+  function setCount(n){
+    const old = state.people.length;
+    if(n > old) state.people = state.people.concat(Array(n-old).fill(""));
+    else state.people = state.people.slice(0,n);
+    // drop removed people from items
+    state.items.forEach(it => it.shared = it.shared.filter(i => i < n));
+    state.items = state.items.filter(it => it.shared.length);
+    if(state.payer >= n) state.payer = -1;
+    save(); renderNames();
+  }
+  $("minus").onclick = () => setCount(state.people.length - 1);
+  $("plus").onclick = () => setCount(state.people.length + 1);
+  $("startBtn").onclick = () => { state.locked = true; save(); renderAll(); $("itemName").focus(); };
+  $("editPeople").onclick = () => { state.locked = false; save(); renderAll(); };
+
+  /* ---------- Multi-select ---------- */
+  function buildPanel(){
+    const p = $("msPanel");
+    const all = selected.size === state.people.length;
+    let h = `<label class="ms-opt ms-all"><input type="checkbox" data-all ${all?"checked":""}> Everyone</label>`;
+    state.people.forEach((_,i)=>{
+      h += `<label class="ms-opt"><input type="checkbox" data-i="${i}" ${selected.has(i)?"checked":""}> ${esc(nameOf(i))}</label>`;
+    });
+    p.innerHTML = h;
+    p.querySelectorAll("input").forEach(cb => cb.addEventListener("change", e=>{
+      if(e.target.hasAttribute("data-all")){
+        selected = e.target.checked ? new Set(state.people.map((_,i)=>i)) : new Set();
+      } else {
+        const i = +e.target.dataset.i;
+        e.target.checked ? selected.add(i) : selected.delete(i);
+      }
+      buildPanel(); updateMsText();
+    }));
+  }
+  function updateMsText(){
+    const n = selected.size, total = state.people.length;
+    let t;
+    if(n === 0) t = "Choose people";
+    else if(n === total) t = "Everyone";
+    else {
+      const names = [...selected].sort((a,b)=>a-b).map(nameOf);
+      t = names.length <= 3 ? names.join(", ") : names.slice(0,2).join(", ") + " +" + (names.length-2) + " more";
+    }
+    $("msText").textContent = t;
+  }
+  function openMs(open){
+    const ms = $("ms"), p = $("msPanel");
+    if(open){ buildPanel(); p.hidden = false; ms.setAttribute("data-open",""); $("msBtn").setAttribute("aria-expanded","true"); }
+    else { p.hidden = true; ms.removeAttribute("data-open"); $("msBtn").setAttribute("aria-expanded","false"); }
+  }
+  $("msBtn").onclick = () => openMs($("msPanel").hidden);
+  document.addEventListener("click", e => { if(!$("ms").contains(e.target)) openMs(false); });
+  document.addEventListener("keydown", e => { if(e.key==="Escape") openMs(false); });
+
+  /* ---------- Step 2 ---------- */
+  function addItem(){
+    const name = $("itemName").value.trim();
+    const price = parseFloat($("itemPrice").value);
+    const err = $("itemError");
+    if(!(price > 0)){ err.textContent = "Enter a price above ₹0."; $("itemPrice").focus(); return; }
+    if(selected.size === 0){ err.textContent = "Choose at least one person to split this between."; openMs(true); return; }
+    err.textContent = "";
+    const shared = [...selected].sort((a,b)=>a-b);
+    const existing = editingId !== null ? state.items.find(x => x.id === editingId) : null;
+    if(existing){ existing.name = name; existing.price = price; existing.shared = shared; }
+    else state.items.push({ id: Date.now() + Math.random(), name, price, shared });
+    save();
+    resetForm();
+    renderItems(); renderResults();
+    $("itemPrice").focus();
+  }
+  function resetForm(){
+    editingId = null;
+    $("itemName").value = ""; $("itemPrice").value = "";
+    $("itemError").textContent = "";
+    $("addItem").textContent = "Add item";
+    $("cancelEdit").hidden = true;
+    selected = new Set(state.people.map((_,i)=>i)); updateMsText(); openMs(false);
+  }
+  function startEdit(it){
+    editingId = it.id;
+    $("itemName").value = it.name;
+    $("itemPrice").value = it.price;
+    selected = new Set(it.shared); updateMsText();
+    $("addItem").textContent = "Save changes";
+    $("cancelEdit").hidden = false;
+    $("itemError").textContent = "";
+    renderItems();
+    $("s2").scrollIntoView({behavior:"smooth", block:"start"});
+    $("itemPrice").focus({preventScroll:true});
+  }
+  $("addItem").onclick = addItem;
+  $("cancelEdit").onclick = () => { resetForm(); renderItems(); };
+  $("editBill").onclick = () => {
+    resetForm();
+    state.locked = false; save(); renderAll();
+    $("s1").scrollIntoView({behavior:"smooth", block:"start"});
+  };
+  ["itemName","itemPrice"].forEach(id => $(id).addEventListener("keydown", e => { if(e.key==="Enter") addItem(); }));
+
+  function renderItems(){
+    const ul = $("items"); ul.innerHTML = "";
+    state.items.forEach(it=>{
+      const li = document.createElement("li");
+      const who = it.shared.length === state.people.length
+        ? `<span class="chip">Everyone</span>`
+        : it.shared.map(i=>`<span class="chip">${esc(nameOf(i))}</span>`).join("");
+      const lbl = esc(itemLabel(it));
+      if(it.id === editingId) li.className = "editing";
+      li.innerHTML = `<span class="nm">${lbl}</span><span class="pr">${inr(it.price)}</span>
+        <span class="acts"><button class="ed" aria-label="Edit ${lbl}">Edit</button><button class="del" aria-label="Remove ${lbl}">×</button></span>
+        <span class="who">${who}</span>`;
+      li.querySelector(".ed").onclick = () => startEdit(it);
+      li.querySelector(".del").onclick = () => { if(it.id === editingId) resetForm(); state.items = state.items.filter(x=>x.id!==it.id); save(); renderItems(); renderResults(); };
+      ul.appendChild(li);
+    });
+    const sub = state.items.reduce((s,it)=>s+it.price,0);
+    $("emptyItems").hidden = state.items.length > 0;
+    $("subtotal").hidden = state.items.length === 0;
+    $("subtotalAmt").textContent = inr(sub);
+  }
+
+  /* ---------- Step 3 ---------- */
+  function compute(){
+    const n = state.people.length;
+    const base = Array(n).fill(0);
+    const lines = Array.from({length:n},()=>[]);
+    state.items.forEach(it=>{
+      const share = it.price / it.shared.length;
+      it.shared.forEach(i => { base[i] += share; lines[i].push({name:itemLabel(it), price:it.price, share, k:it.shared.length}); });
+    });
+    const tax = Math.max(0, parseFloat(state.tax) || 0);
+    const taxEach = n ? tax / n : 0;
+    const totals = base.map(b => b + taxEach);
+    return {base, totals, lines, tax, taxEach};
+  }
+  function renderResults(){
+    const {totals, lines, taxEach} = compute();
+    const ul = $("results"); ul.innerHTML = "";
+    state.people.forEach((_,i)=>{
+      const li = document.createElement("li");
+      const parts = lines[i].map(l => `${esc(l.name)} ${inr(l.share)}${l.k>1?` (1/${l.k})`:""}`);
+      if(taxEach) parts.push(`tax ${inr(taxEach)}`);
+      const bd = parts.length ? parts.join(", ") : "Nothing ordered";
+      li.innerHTML = `<div class="row"><span class="pname">${esc(nameOf(i))}</span><span class="amt">${inr(totals[i])}</span></div><div class="breakdown">${bd}</div>`;
+      ul.appendChild(li);
+    });
+    const grand = totals.reduce((a,b)=>a+b,0);
+    $("grand").textContent = inr(grand);
+
+    // payer dropdown
+    const sel = $("payer");
+    sel.innerHTML = `<option value="-1">Not set</option>` + state.people.map((_,i)=>`<option value="${i}" ${state.payer===i?"selected":""}>${esc(nameOf(i))}</option>`).join("");
+    if(state.payer < 0) sel.value = "-1";
+
+    const st = $("settle");
+    if(state.payer >= 0 && grand > 0){
+      const p = state.payer;
+      const rows = state.people.map((_,i)=>i).filter(i => i!==p && totals[i] > 0.004)
+        .map(i => `<p>${esc(nameOf(i))} pays ${esc(nameOf(p))} <strong>${inr(totals[i])}</strong></p>`).join("");
+      st.innerHTML = `<div class="settle"><h3>Settle up with ${esc(nameOf(p))}</h3>${rows || "<p>No one else owes anything.</p>"}</div>`;
+    } else st.innerHTML = "";
+  }
+  $("taxAmt").addEventListener("input", e => { state.tax = e.target.value; save(); renderResults(); });
+  $("payer").addEventListener("change", e => { state.payer = +e.target.value; save(); renderResults(); });
+
+  $("copyBtn").onclick = async () => {
+    const {totals} = compute();
+    let txt = "Bill split\n" + state.people.map((_,i)=>`${nameOf(i)}: ${inr(totals[i])}`).join("\n");
+    txt += `\nTotal: ${inr(totals.reduce((a,b)=>a+b,0))}`;
+    if(state.payer >= 0) txt += `\nPay ${nameOf(state.payer)}`;
+    try{ await navigator.clipboard.writeText(txt); $("copyBtn").textContent = "Copied"; }
+    catch(e){ $("copyBtn").textContent = "Copy failed"; }
+    setTimeout(()=> $("copyBtn").textContent = "Copy summary", 1600);
+  };
+  $("resetBtn").onclick = () => {
+    if(!confirm("Clear this bill and start a new one?")) return;
+    state = { people:["",""], locked:false, items:[], tax:0, payer:-1 }; save(); resetForm(); renderAll();
+    window.scrollTo({top:0});
+  };
+
+  /* ---------- Split bill page ---------- */
+  function renderBill(){
+    const {base, totals, lines, tax, taxEach} = compute();
+    const grand = totals.reduce((a,b)=>a+b,0);
+    const date = new Date().toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
+    const n = state.people.length, m = state.items.length, p = state.payer;
+    let h = `<header class="bill-head"><div><h1 class="bill-title">Split bill</h1><p class="bill-meta">${date}, ${n} people, ${m} item${m===1?"":"s"}</p></div><div class="bill-total"><span>Total bill</span><strong>${inr(grand)}</strong></div></header>`;
+    h += `<h2 class="bill-h">Who owes what</h2><div class="owe-grid">`;
+    state.people.forEach((_,i)=>{
+      let note;
+      if(p < 0) note = "Their share";
+      else if(i === p) note = "Paid the bill";
+      else note = totals[i] > 0.004 ? "Pays " + esc(nameOf(p)) : "Owes nothing";
+      h += `<div class="owe-card${i===p?" payer":""}"><div class="oc-name">${esc(nameOf(i))}</div><div class="oc-amt">${inr(totals[i])}</div><div class="oc-note">${note}</div></div>`;
+    });
+    h += `</div>`;
+    if(p >= 0){
+      const back = grand - totals[p];
+      if(back > 0.004) h += `<p class="bill-settle">${esc(nameOf(p))} paid ${inr(grand)} and gets ${inr(back)} back in total.</p>`;
+    }
+    h += `<h2 class="bill-h">What everyone had</h2>`;
+    state.people.forEach((_,i)=>{
+      h += `<div class="person-block"><div class="pb-head"><h3>${esc(nameOf(i))}</h3><span>${inr(totals[i])}</span></div>`;
+      if(!lines[i].length){ h += `<p class="pb-empty">Didn't share any items${taxEach ? `, only their tax share of ${inr(taxEach)}` : ""}.</p></div>`; return; }
+      h += `<div class="tbl-wrap"><table><thead><tr><th>Item</th><th class="num">Item price</th><th>Split</th><th class="num">Charged</th></tr></thead><tbody>`;
+      lines[i].forEach(l=>{
+        const split = l.k === 1 ? "Just you" : (l.k === n ? `Everyone (${n})` : `Shared by ${l.k}`);
+        h += `<tr><td>${esc(l.name)}</td><td class="num">${inr(l.price)}</td><td>${split}</td><td class="num">${inr(l.share)}</td></tr>`;
+      });
+      h += `</tbody><tfoot>`;
+      if(tax) h += `<tr><td colspan="3">Subtotal</td><td class="num">${inr(base[i])}</td></tr><tr><td colspan="3">Tax (${inr(tax)} split ${n} ways)</td><td class="num">${inr(taxEach)}</td></tr>`;
+      h += `<tr class="tot"><td colspan="3">Total charged</td><td class="num">${inr(totals[i])}</td></tr></tfoot></table></div></div>`;
+    });
+    $("bill").innerHTML = h;
+  }
+  let lastLogged = "";
+  function logBill(){
+    if(!SHEET_URL) return;
+    const {totals, tax} = compute();
+    const r = x => Math.round(x*100)/100;
+    const body = JSON.stringify({
+      people: state.people.map((_,i)=>nameOf(i)),
+      items: state.items.map(it => ({ name:itemLabel(it), price:r(it.price), sharedBy:it.shared.map(nameOf) })),
+      tax: r(tax),
+      total: r(totals.reduce((a,b)=>a+b,0)),
+      payer: state.payer >= 0 ? nameOf(state.payer) : "",
+      owes: state.people.map((_,i)=>({ name:nameOf(i), amount:r(totals[i]) }))
+    });
+    if(body === lastLogged) return; // don't log the same bill twice
+    lastLogged = body;
+    try{
+      fetch(SHEET_URL, { method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain;charset=utf-8"}, body }).catch(()=>{});
+    }catch(e){}
+  }
+  $("logNote").hidden = !SHEET_URL;
+
+  $("viewBill").onclick = () => {
+    renderBill();
+    logBill();
+    document.querySelector("main").hidden = true;
+    $("billView").hidden = false;
+    window.scrollTo({top:0});
+  };
+  $("backBtn").onclick = () => {
+    $("billView").hidden = true;
+    document.querySelector("main").hidden = false;
+    $("splitOut").scrollIntoView({block:"start"});
+  };
+  $("printBtn").onclick = () => { try{ window.print(); }catch(e){} };
+
+  /* ---------- Render ---------- */
+  function renderAll(){
+    renderNames();
+    $("startBtn").textContent = state.items.length ? "Save and continue" : "Start adding items";
+    $("peopleSetup").hidden = state.locked;
+    $("editPeople").hidden = !state.locked;
+    const sum = $("peopleSummary");
+    sum.hidden = !state.locked;
+    sum.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px">${state.people.map((_,i)=>`<span class="chip">${esc(nameOf(i))}</span>`).join("")}</div>`;
+    $("s2").classList.toggle("locked", !state.locked);
+    $("s3").classList.toggle("locked", !state.locked || state.items.length===0);
+    selected = new Set(state.people.map((_,i)=>i)); updateMsText();
+    $("taxAmt").value = state.tax || "";
+    renderItems(); renderResults();
+  }
+  const origRenderItems = renderItems;
+  renderItems = function(){ origRenderItems(); $("s3").classList.toggle("locked", !state.locked || state.items.length===0); };
+
+  renderAll();
+})();
+</script>
+</body>
+</html>
