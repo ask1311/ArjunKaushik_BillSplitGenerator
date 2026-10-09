@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 :root{
   --bg:#EDF1EE; --paper:#FFFFFF; --ink:#1D2A27; --muted:#5F6E69; --line:#D3DCD7;
@@ -122,6 +124,16 @@ button:hover{border-color:var(--muted)}
 .wa-btn{display:inline-flex; align-items:center; gap:8px; background:#168A47; color:#fff; font-weight:600; border-radius:10px; padding:10px 16px; text-decoration:none; border:1px solid #168A47}
 .wa-btn:hover{filter:brightness(1.1)}
 .wa-btn svg{width:18px; height:18px; flex:none}
+.wa-btn:disabled,#dlPdf:disabled{opacity:.65; cursor:progress}
+.toast{position:fixed; left:50%; bottom:calc(20px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); background:var(--ink); color:var(--paper); padding:12px 16px; border-radius:12px; width:max-content; max-width:min(92vw,420px); font-size:.92rem; box-shadow:0 10px 30px -10px rgba(0,0,0,.45); z-index:50}
+.toast[hidden]{display:none}
+/* off-screen copy of the bill used to draw the PDF, always in light colours */
+.pdf-sheet{position:absolute; left:-10000px; width:760px; background:#fff; color:var(--ink);
+  --bg:#fff; --paper:#fff; --ink:#1D2A27; --muted:#5F6E69; --line:#C9D3CE; --green:#21734F; --green-soft:#DCEFE4; --saffron-soft:#FBEBD0}
+.pdf-sheet .bill{box-shadow:none; border-radius:0; padding:40px 40px 32px}
+.pdf-sheet .bill::before,.pdf-sheet .bill::after{display:none}
+.pdf-sheet .tbl-wrap{overflow:visible}
+.pdf-foot{margin:28px 0 0; padding-top:14px; border-top:1px dashed var(--line); color:var(--muted); font-size:.85rem; text-align:center}
 .bill{background:var(--paper); border-radius:4px; padding:36px 32px 44px; position:relative; box-shadow:0 24px 50px -30px rgba(0,0,0,.45)}
 .bill::before,.bill::after{content:""; position:absolute; left:0; right:0; height:12px; background-size:16px 12px; background-repeat:repeat-x}
 .bill::before{top:-11px; background-image:radial-gradient(circle at 8px 12px, var(--paper) 7px, transparent 7.5px)}
@@ -261,15 +273,16 @@ button:hover{border-color:var(--muted)}
   <div class="bill-bar">
     <button id="backBtn">Back to editing</button>
     <div class="bar-right">
-      <a class="wa-btn" id="waShare" href="#" target="_blank" rel="noopener">
+      <button class="wa-btn" id="waShare">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 21l2.1-5.4A8.4 8.4 0 1 1 21 11.5z"/></svg>
-        Share on WhatsApp
-      </a>
-      <button id="printBtn">Print or save as PDF</button>
+        <span id="waLabel">Share PDF on WhatsApp</span>
+      </button>
+      <button id="dlPdf">Download PDF</button>
     </div>
   </div>
   <article class="bill" id="bill"></article>
 </div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script>
 (function(){
@@ -528,7 +541,6 @@ button:hover{border-color:var(--muted)}
       h += `<tr class="tot"><td colspan="3">Total charged</td><td class="num">${inr(totals[i])}</td></tr></tfoot></table></div></div>`;
     });
     $("bill").innerHTML = h;
-    $("waShare").href = "https://wa.me/?text=" + encodeURIComponent(shareText());
   }
   function shareText(){
     const {totals, lines, taxEach} = compute();
@@ -574,6 +586,7 @@ button:hover{border-color:var(--muted)}
   $("viewBill").onclick = () => {
     renderBill();
     logBill();
+    preparePdf(); // build the PDF in the background so sharing is instant
     document.querySelector("main").hidden = true;
     $("billView").hidden = false;
     window.scrollTo({top:0});
@@ -583,7 +596,101 @@ button:hover{border-color:var(--muted)}
     document.querySelector("main").hidden = false;
     $("splitOut").scrollIntoView({block:"start"});
   };
-  $("printBtn").onclick = () => { try{ window.print(); }catch(e){} };
+  /* ---------- PDF + sharing ---------- */
+  let pdfFile = null, pdfPromise = null, pdfTok = 0, toastTimer;
+  function toast(msg){ const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(()=> t.hidden = true, 4500); }
+  function setBusy(b){ $("waShare").disabled = b; $("dlPdf").disabled = b; $("waLabel").textContent = b ? "Preparing PDF…" : "Share PDF on WhatsApp"; }
+  function billDate(){ return new Date().toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}); }
+  function fileName(){ return "Split-bill-" + billDate().replace(/\s+/g,"-") + ".pdf"; }
+
+  async function buildPdf(){
+    if(!window.html2canvas || !window.jspdf) throw new Error("PDF libraries not loaded");
+    if(document.fonts && document.fonts.ready) await document.fonts.ready;
+    const sheet = document.createElement("div");
+    sheet.className = "pdf-sheet";
+    sheet.style.top = window.scrollY + "px";
+    const art = document.createElement("article");
+    art.className = "bill";
+    art.innerHTML = $("bill").innerHTML;
+    const site = /github\.io$/.test(location.hostname) ? location.origin + location.pathname : "";
+    art.insertAdjacentHTML("beforeend", `<p class="pdf-foot">${site ? "Split your own bill at " + esc(site) : "Made with Split the bill"}</p>`);
+    sheet.appendChild(art);
+    document.body.appendChild(sheet);
+    try{
+      const scale = 2;
+      const canvas = await html2canvas(art, { scale, backgroundColor:"#ffffff", logging:false });
+      // Safe places to start a new page: section headings, person blocks, table rows
+      const top0 = art.getBoundingClientRect().top;
+      const breaks = [...art.querySelectorAll(".bill-h, .person-block, tbody tr, tfoot")]
+        .map(el => (el.getBoundingClientRect().top - top0) * scale).sort((a,b)=>a-b);
+      const pdf = new window.jspdf.jsPDF({ unit:"pt", format:"a4", compress:true });
+      const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight(), m = 28;
+      const imgW = pw - m*2, ratio = canvas.width / imgW, pageH = (ph - m*2) * ratio;
+      let y = 0, first = true;
+      while(y < canvas.height - 1){
+        let end = Math.min(y + pageH, canvas.height);
+        if(end < canvas.height){
+          const ok = breaks.filter(b => b > y + pageH*0.4 && b <= end);
+          if(ok.length) end = ok[ok.length-1];
+        }
+        const h = Math.ceil(end - y);
+        const slice = document.createElement("canvas");
+        slice.width = canvas.width; slice.height = h;
+        const ctx = slice.getContext("2d");
+        ctx.fillStyle = "#ffffff"; ctx.fillRect(0,0,slice.width,h);
+        ctx.drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
+        if(!first) pdf.addPage();
+        pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", m, m, imgW, h / ratio);
+        first = false; y = end;
+      }
+      return new File([pdf.output("blob")], fileName(), { type:"application/pdf" });
+    } finally { sheet.remove(); }
+  }
+  function preparePdf(){
+    const tok = ++pdfTok;
+    pdfFile = null;
+    pdfPromise = buildPdf().then(f => { if(tok === pdfTok) pdfFile = f; return f; })
+                           .catch(e => { if(tok === pdfTok) pdfPromise = null; throw e; });
+    pdfPromise.catch(()=>{});
+    return pdfPromise;
+  }
+  async function getPdf(){
+    if(pdfFile) return pdfFile;
+    setBusy(true);
+    try{ return await (pdfPromise || preparePdf()); } finally { setBusy(false); }
+  }
+  function downloadFile(f){
+    const url = URL.createObjectURL(f);
+    const a = document.createElement("a");
+    a.href = url; a.download = f.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=> URL.revokeObjectURL(url), 4000);
+  }
+
+  $("waShare").onclick = async () => {
+    const waited = !pdfFile;
+    let f;
+    try{ f = await getPdf(); }catch(e){ toast("Couldn't create the PDF. Please try again."); return; }
+    // Phones: native share sheet with the PDF attached, pick WhatsApp
+    if(navigator.canShare && navigator.canShare({ files:[f] })){
+      try{ await navigator.share({ files:[f], title:"Split bill" }); return; }
+      catch(err){
+        if(err && err.name === "AbortError") return; // user closed the share sheet
+        if(waited && err && err.name === "NotAllowedError"){ toast("Your PDF is ready. Tap Share again."); return; }
+      }
+    }
+    // Laptops / unsupported browsers: download the PDF and open WhatsApp to attach it
+    downloadFile(f);
+    const {totals} = compute();
+    const msg = `*Split bill* (${billDate()}): total ${inr(totals.reduce((a,b)=>a+b,0))}. Full breakdown in the attached PDF.`;
+    const w = window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank");
+    if(w) w.opener = null;
+    toast(w ? "PDF downloaded. Attach it in the WhatsApp chat that just opened." : "PDF downloaded. Open WhatsApp and attach it to your chat.");
+  };
+  $("dlPdf").onclick = async () => {
+    try{ downloadFile(await getPdf()); }
+    catch(e){ toast("Couldn't create the PDF. Please try again."); }
+  };
 
   /* ---------- Render ---------- */
   function renderAll(){
