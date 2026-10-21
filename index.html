@@ -154,6 +154,12 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
 .switch[aria-checked="true"]{background:var(--lilac)}
 .switch[aria-checked="true"] .knob{transform:translateX(24px); background:#000}
 .tax-field{margin-top:12px; animation:drop .2s ease-out}
+.sep-row{display:flex; align-items:center; gap:14px; padding:12px 14px; border:2px dashed var(--edge); border-radius:14px; cursor:pointer}
+.sep-row .tx{flex:1; font-weight:600; font-size:.95rem}
+.sep-row .tx small{display:block; font-weight:500; color:var(--muted); font-size:.82rem}
+.sep-field{margin-top:10px; animation:drop .2s ease-out}
+.sep-field[hidden]{display:none}
+.hint{color:var(--muted); font-size:.82rem; margin:6px 0 0}
 .tax-field[hidden]{display:none}
 
 /* Step 4 */
@@ -206,7 +212,9 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
 .bill-h{font-family:"Unbounded", sans-serif; font-weight:700; font-size:1.05rem; letter-spacing:-.02em; margin:30px 0 14px}
 .bill .ledger li{border-top-color:#E8E3EE}
 .bill .lg-note{color:#5E5873}
-.bill-settle{margin:14px 0 0; padding:12px 14px; background:#F2D891; border:2px solid #000; border-radius:14px; font-weight:600}
+.bill-settle{margin:14px 0 0; padding:12px 14px; background:#F2D891; border:2px solid #000; border-radius:14px}
+.bill-settle strong{display:block; font-family:"Unbounded", sans-serif; font-size:.85rem; margin-bottom:4px}
+.bill-settle p{margin:2px 0}
 .person-block{margin-top:16px; border:2px solid #000; border-radius:18px; overflow:hidden; background:#fff}
 .pb-head{display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:2px solid #000; background:#F3F0F8}
 .pb-head h3{margin:0; font-size:1.05rem; font-weight:700; flex:1}
@@ -317,6 +325,17 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
           </div>
         </div>
         <div class="full">
+          <div class="sep-row" id="sepRow">
+            <span class="tx" id="sepLabel">Paid by someone else? <span class="opt">(optional)</span><small>If one person paid just for this item</small></span>
+            <button type="button" class="switch" id="sepToggle" role="switch" aria-checked="false" aria-labelledby="sepLabel"><span class="knob"></span></button>
+          </div>
+          <div class="sep-field" id="sepField" hidden>
+            <label class="field-label" for="sepPayer">Who paid for this item?</label>
+            <select class="input" id="sepPayer"></select>
+            <p class="hint">Everything else stays with whoever paid the bill in step 3.</p>
+          </div>
+        </div>
+        <div class="full">
           <div class="form-actions">
             <button class="btn btn-lilac" id="addItem">Add item</button>
             <button class="link" id="cancelEdit" hidden>Cancel editing</button>
@@ -341,7 +360,7 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
     <!-- Step 3 -->
     <section class="card locked" id="s3">
       <div class="step-head"><span class="num">3</span><h2>Who paid?</h2></div>
-      <label class="field-label" for="payer">Who paid the bill? <span class="opt">(optional)</span></label>
+      <label class="field-label" for="payer" id="payerLabel">Who paid the bill? <span class="opt">(optional)</span></label>
       <select class="input" id="payer" style="margin-bottom:20px"></select>
       <button class="btn btn-champagne btn-xl" id="getSplit">Get the split</button>
     </section>
@@ -361,7 +380,7 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
       <p class="note" id="logNote" hidden>When you view the split bill, a copy is saved by the site owner for their records.</p>
     </section>
 
-    <!-- Version 19 -->
+    <!-- Version 20 -->
     <p class="version">Made for friends, so nobody does maths at the table.</p>
     <p class="byline">By Arjun Kaushik</p>
   </main>
@@ -395,7 +414,7 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
   try{ localStorage.removeItem(KEY); }catch(e){}
   const fresh = () => ({ people:["",""], locked:false, items:[], taxOn:false, tax:0, payer:-1 });
   let state = fresh();
-  let selected = new Set(), editingId = null, lastAddedId = null;
+  let selected = new Set(), editingId = null, lastAddedId = null, sepOn = false;
 
   const $ = id => document.getElementById(id);
   const r2 = x => Math.round(x*100)/100;
@@ -464,7 +483,7 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
   function setCount(n){
     const old = state.people.length;
     state.people = n > old ? state.people.concat(Array(n-old).fill("")) : state.people.slice(0,n);
-    state.items.forEach(it => it.shared = it.shared.filter(i => i < n));
+    state.items.forEach(it => { it.shared = it.shared.filter(i => i < n); if(it.paidBy >= n) it.paidBy = -1; });
     state.items = state.items.filter(it => it.shared.length);
     if(state.payer >= n) state.payer = -1;
     changed(); renderPeople();
@@ -517,11 +536,13 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
     const err = $("itemError");
     if(!(price > 0)){ err.textContent = "Enter a price above ₹0."; $("itemPrice").focus(); return; }
     if(selected.size === 0){ err.textContent = "Choose at least one person to split this between."; openMs(true); return; }
+    const paidBy = sepOn ? +$("sepPayer").value : -1;
+    if(sepOn && paidBy < 0){ err.textContent = "Choose who paid for this item, or switch it off."; $("sepPayer").focus(); return; }
     err.textContent = "";
     const shared = [...selected].sort((a,b)=>a-b);
     const existing = editingId !== null ? state.items.find(x => x.id === editingId) : null;
-    if(existing){ existing.name = name; existing.price = price; existing.shared = shared; lastAddedId = existing.id; }
-    else { const id = Date.now() + Math.random(); state.items.push({ id, name, price, shared }); lastAddedId = id; }
+    if(existing){ existing.name = name; existing.price = price; existing.shared = shared; existing.paidBy = paidBy; lastAddedId = existing.id; }
+    else { const id = Date.now() + Math.random(); state.items.push({ id, name, price, shared, paidBy }); lastAddedId = id; }
     changed(); resetForm(); renderItems();
     lastAddedId = null;
     $("itemPrice").focus();
@@ -533,12 +554,27 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
     $("addItem").textContent = "Add item";
     $("cancelEdit").hidden = true;
     selected = new Set(allIdx()); updateMsText(); openMs(false);
+    setSep(false, -1);
   }
+  /* Optional: one person paid just for this item */
+  function renderSepOptions(val){
+    $("sepPayer").innerHTML = `<option value="-1">Choose person</option>` + state.people.map((_,i)=>`<option value="${i}">${esc(nameOf(i))}</option>`).join("");
+    $("sepPayer").value = String(val);
+  }
+  function setSep(on, val){
+    sepOn = on;
+    $("sepToggle").setAttribute("aria-checked", on ? "true" : "false");
+    $("sepField").hidden = !on;
+    renderSepOptions(on ? val : -1);
+  }
+  $("sepToggle").onclick = e => { e.stopPropagation(); setSep(!sepOn, -1); if(sepOn) $("sepPayer").focus(); };
+  $("sepRow").onclick = () => { setSep(!sepOn, -1); if(sepOn) $("sepPayer").focus(); };
   function startEdit(it){
     editingId = it.id;
     $("itemName").value = it.name;
     $("itemPrice").value = it.price;
     selected = new Set(it.shared); updateMsText();
+    setSep(it.paidBy >= 0, it.paidBy >= 0 ? it.paidBy : -1);
     $("addItem").textContent = "Save changes";
     $("cancelEdit").hidden = false;
     $("itemError").textContent = "";
@@ -563,7 +599,7 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
       const lbl = esc(itemLabel(it));
       if(it.id === editingId) li.classList.add("editing");
       if(it.id === lastAddedId) li.classList.add("new");
-      li.innerHTML = `<div><span class="it-name">${lbl}</span><span class="it-who">${esc(whoText(it.shared))}</span></div>
+      li.innerHTML = `<div><span class="it-name">${lbl}</span><span class="it-who">${esc(whoText(it.shared))}${it.paidBy >= 0 ? `, paid by ${esc(nameOf(it.paidBy))}` : ""}</span></div>
         <span class="it-price">${inr(it.price)}</span>
         <span class="it-acts"><button class="icon-btn" data-a="ed" aria-label="Edit ${lbl}">Edit</button><button class="icon-btn del" data-a="del" aria-label="Remove ${lbl}">×</button></span>`;
       li.querySelector('[data-a="ed"]').onclick = () => startEdit(it);
@@ -574,6 +610,8 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
     $("subtotal").hidden = state.items.length === 0;
     $("subtotalAmt").textContent = inr(state.items.reduce((s,it)=>s+it.price,0));
     $("s3").classList.toggle("locked", !state.locked || state.items.length === 0);
+    const sep = state.items.some(it => it.paidBy >= 0);
+    $("payerLabel").innerHTML = (sep ? "Who paid the rest of the bill?" : "Who paid the bill?") + ' <span class="opt">(optional)</span>';
   }
 
   /* ---------- Tax toggle ---------- */
@@ -599,12 +637,68 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
     const lines = Array.from({length:n}, () => []);
     state.items.forEach(it => {
       const share = it.price / it.shared.length;
-      it.shared.forEach(i => { base[i] += share; lines[i].push({ name:itemLabel(it), price:it.price, share, k:it.shared.length }); });
+      it.shared.forEach(i => { base[i] += share; lines[i].push({ name:itemLabel(it), price:it.price, share, k:it.shared.length, paidBy:it.paidBy }); });
     });
     const tax = state.taxOn ? Math.max(0, parseFloat(state.tax) || 0) : 0;
     const taxEach = n ? tax / n : 0;
     const totals = base.map(b => b + taxEach);
-    return { base, totals, lines, tax, taxEach, grand: totals.reduce((a,b)=>a+b,0) };
+    const grand = totals.reduce((a,b)=>a+b,0);
+
+    // Who actually paid what: items paid separately, the rest by the main payer
+    const paid = Array(n).fill(0), paidItems = Array.from({length:n}, () => []);
+    let rest = tax;
+    state.items.forEach(it => {
+      if(it.paidBy >= 0 && it.paidBy < n){ paid[it.paidBy] += it.price; paidItems[it.paidBy].push(itemLabel(it)); }
+      else rest += it.price;
+    });
+    const p = state.payer;
+    if(p >= 0) paid[p] += rest;
+    const sepCount = state.items.filter(it => it.paidBy >= 0).length;
+    const known = p >= 0 || rest < 0.005;          // every rupee has a payer
+    const anyPayer = p >= 0 || sepCount > 0;
+    // Fewest transfers: biggest debtor pays biggest creditor
+    const transfers = [];
+    if(known && anyPayer){
+      const net = paid.map((v,i) => v - totals[i]);
+      const debt = [], cred = [];
+      net.forEach((v,i) => { if(v < -0.005) debt.push({ i, v:-v }); else if(v > 0.005) cred.push({ i, v }); });
+      debt.sort((a,b)=>b.v-a.v); cred.sort((a,b)=>b.v-a.v);
+      let a = 0, b = 0;
+      while(a < debt.length && b < cred.length){
+        const amt = Math.min(debt[a].v, cred[b].v);
+        if(amt > 0.005) transfers.push({ from:debt[a].i, to:cred[b].i, amount:amt });
+        debt[a].v -= amt; cred[b].v -= amt;
+        if(debt[a].v < 0.005) a++;
+        if(cred[b].v < 0.005) b++;
+      }
+    }
+    return { base, totals, lines, tax, taxEach, grand, paid, paidItems, rest, sepCount, known, anyPayer, transfers };
+  }
+
+  /* ---------- Who pays whom, in words ---------- */
+  function paidWhat(c, i){
+    const bits = [];
+    if(i === state.payer) bits.push(c.sepCount ? "Paid the rest of the bill" : "Paid the bill");
+    if(c.paidItems[i].length) bits.push("Paid for " + c.paidItems[i].join(", "));
+    return bits;
+  }
+  function personNote(c, i){
+    if(!c.known || !c.anyPayer){
+      const bits = paidWhat(c, i);
+      return bits.length ? esc(bits.join(". ")) : "Their share";
+    }
+    const out = c.transfers.filter(t => t.from === i), inn = c.transfers.filter(t => t.to === i);
+    const bits = paidWhat(c, i).map(esc);
+    if(out.length) bits.push("Pays " + out.map(t => `${esc(nameOf(t.to))} ${inr(t.amount)}`).join(", "));
+    if(inn.length) bits.push("Gets " + inr(inn.reduce((s,t)=>s+t.amount,0)) + " back");
+    if(!out.length && !inn.length) bits.push(c.totals[i] > 0.004 ? "All square" : "Owes nothing");
+    return bits.join(". ");
+  }
+  function settleHtml(c, cls){
+    if(!c.anyPayer) return "";
+    if(!c.known) return `<div class="${cls}"><strong>Almost there</strong><p>Choose who paid the rest of the bill in step 3 to see who pays whom.</p></div>`;
+    if(!c.transfers.length) return `<div class="${cls}"><strong>Settle up</strong><p>Everyone's square. Nobody owes anything.</p></div>`;
+    return `<div class="${cls}"><strong>Settle up</strong>${c.transfers.map(t => `<p>${esc(nameOf(t.from))} pays ${esc(nameOf(t.to))} <b>${inr(t.amount)}</b></p>`).join("")}</div>`;
   }
 
   /* ---------- Step 3 + 4 ---------- */
@@ -614,23 +708,19 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
     sel.value = String(state.payer);
   }
   function renderResults(){
-    const { totals, lines, taxEach, grand } = compute();
-    const p = state.payer;
+    const c = compute();
+    const { totals, lines, taxEach, grand } = c;
     const ul = $("results");
     ul.classList.remove("reveal");
     ul.innerHTML = state.people.map((_,i) => {
       const parts = lines[i].map(l => `${esc(l.name)} ${inr(l.share)}${l.k>1?` (1/${l.k})`:""}`);
       if(taxEach) parts.push(`tax ${inr(taxEach)}`);
-      return `<li style="--i:${i}"><div class="lg-main"><span class="lg-name">${esc(nameOf(i))}${i===p?'<span class="paid-tag">Paid</span>':""}</span><span class="lg-note">${parts.length ? parts.join(", ") : "Nothing ordered"}</span></div><span class="lg-amt" data-v="${totals[i]}">${inr(totals[i])}</span></li>`;
+      return `<li style="--i:${i}"><div class="lg-main"><span class="lg-name">${esc(nameOf(i))}${c.paid[i] > 0.004 ? `<span class="paid-tag">Paid ${inr(c.paid[i])}</span>` : ""}</span><span class="lg-note">${parts.length ? parts.join(", ") : "Nothing ordered"}</span></div><span class="lg-amt" data-v="${totals[i]}">${inr(totals[i])}</span></li>`;
     }).join("");
     void ul.offsetWidth; ul.classList.add("reveal");
     ul.querySelectorAll(".lg-amt").forEach(el => countUp(el, +el.dataset.v));
     countUp($("grand"), grand);
-    if(p >= 0 && grand > 0){
-      const rows = allIdx().filter(i => i !== p && totals[i] > 0.004)
-        .map(i => `<p>${esc(nameOf(i))} pays ${esc(nameOf(p))} <b>${inr(totals[i])}</b></p>`).join("");
-      $("settle").innerHTML = `<div class="settle"><strong>Settle up with ${esc(nameOf(p))}</strong>${rows || "<p>No one else owes anything.</p>"}</div>`;
-    } else $("settle").innerHTML = "";
+    $("settle").innerHTML = settleHtml(c, "settle");
   }
   $("payer").addEventListener("change", e => { state.payer = +e.target.value; changed(); });
   $("getSplit").onclick = () => {
@@ -639,12 +729,16 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
     $("splitOut").hidden = false;
     renderResults();
     $("splitOut").scrollIntoView({behavior:"smooth", block:"start"});
+    // Prepare the split bill + PDF now and log it to the sheet straight away
+    pickTag();
+    renderBill();
+    logBill(preparePdf());
   };
   $("editBill").onclick = () => { resetForm(); state.locked = false; changed(); renderAll(); $("s1").scrollIntoView({behavior:"smooth", block:"start"}); };
   $("copyBtn").onclick = async () => {
-    const { totals, grand } = compute();
-    let txt = "Split bill\n" + state.people.map((_,i)=>`${nameOf(i)}: ${inr(totals[i])}`).join("\n") + `\nTotal: ${inr(grand)}`;
-    if(state.payer >= 0) txt += `\nPay ${nameOf(state.payer)}`;
+    const c = compute();
+    let txt = "Split bill\n" + state.people.map((_,i)=>`${nameOf(i)}: ${inr(c.totals[i])}`).join("\n") + `\nTotal: ${inr(c.grand)}`;
+    if(c.transfers.length) txt += "\n\nSettle up\n" + c.transfers.map(t => `${nameOf(t.from)} pays ${nameOf(t.to)} ${inr(t.amount)}`).join("\n");
     try{ await navigator.clipboard.writeText(txt); $("copyBtn").textContent = "Copied"; }
     catch(e){ $("copyBtn").textContent = "Copy failed"; }
     setTimeout(() => $("copyBtn").textContent = "Copy summary", 1600);
@@ -707,35 +801,29 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
 
   /* ---------- Split bill page ---------- */
   function renderBill(){
-    const { base, totals, lines, tax, taxEach, grand } = compute();
+    const c = compute();
+    const { base, totals, lines, tax, taxEach, grand } = c;
     const n = state.people.length, m = state.items.length, p = state.payer;
     const strip = esc(TICKER.repeat(3));
     let h = `<header class="bill-hero">
       <div class="bh-top"><span class="bh-brand">Split the tab</span><span class="bh-date">${billDate()}</span></div>
       <span class="bh-label">Total bill</span><span class="bh-total">${inr(grand)}</span>
-      <p class="bh-meta">${m} item${m===1?"":"s"}${p>=0 ? `, paid by ${esc(nameOf(p))}` : ""}</p>
+      <p class="bh-meta">${m} item${m===1?"":"s"}${p>=0 ? `, paid by ${esc(nameOf(p))}` : ""}${c.sepCount ? `, ${c.sepCount} paid separately` : ""}</p>
       <div class="bh-sticker">${n} people, one tab</div></header>
       <div class="bill-strip"><div class="ticker-track"><span>${strip}</span><span>${strip}</span></div></div>`;
     h += `<div class="bill-body"><h2 class="bill-h">Who owes what</h2><ul class="ledger">`;
     state.people.forEach((_,i) => {
-      let note;
-      if(p < 0) note = "Their share";
-      else if(i === p) note = "Paid the bill";
-      else note = totals[i] > 0.004 ? "Pays " + esc(nameOf(p)) : "Owes nothing";
-      h += `<li><div class="lg-main"><span class="lg-name">${esc(nameOf(i))}${i===p?'<span class="paid-tag">Paid</span>':""}</span><span class="lg-note">${note}</span></div><span class="lg-amt">${inr(totals[i])}</span></li>`;
+      h += `<li><div class="lg-main"><span class="lg-name">${esc(nameOf(i))}${c.paid[i] > 0.004 ? `<span class="paid-tag">Paid ${inr(c.paid[i])}</span>` : ""}</span><span class="lg-note">${personNote(c, i)}</span></div><span class="lg-amt">${inr(totals[i])}</span></li>`;
     });
     h += `</ul>`;
-    if(p >= 0){
-      const back = grand - totals[p];
-      if(back > 0.004) h += `<p class="bill-settle">${esc(nameOf(p))} paid ${inr(grand)} and gets ${inr(back)} back in total.</p>`;
-    }
+    h += settleHtml(c, "bill-settle");
     h += `<h2 class="bill-h">What everyone had</h2>`;
     state.people.forEach((_,i) => {
       h += `<div class="person-block"><div class="pb-head"><h3>${esc(nameOf(i))}</h3><span class="pb-amt">${inr(totals[i])}</span></div>`;
       if(!lines[i].length){ h += `<p class="pb-empty">Didn't share any items${taxEach ? `, only their tax share of ${inr(taxEach)}` : ""}.</p></div>`; return; }
       h += `<div class="tbl-wrap"><table><thead><tr><th>Item</th><th class="num">Item price</th><th>Split</th><th class="num">Charged</th></tr></thead><tbody>`;
       lines[i].forEach(l => {
-        const split = l.k === 1 ? "Just you" : (l.k === n ? `Everyone (${n})` : `Shared by ${l.k}`);
+        const split = (l.k === 1 ? "Just you" : (l.k === n ? `Everyone (${n})` : `Shared by ${l.k}`)) + (l.paidBy >= 0 ? `, paid by ${esc(nameOf(l.paidBy))}` : "");
         h += `<tr><td>${esc(l.name)}</td><td class="num">${inr(l.price)}</td><td class="split-cell">${split}</td><td class="num">${inr(l.share)}</td></tr>`;
       });
       h += `</tbody><tfoot>`;
@@ -750,16 +838,18 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
   let lastLogged = "";
   function logBill(pdfReady){
     if(!SHEET_URL) return;
-    const { totals, tax, grand } = compute();
+    const c = compute();
     const payload = {
       people: state.people.map((_,i)=>nameOf(i)),
-      items: state.items.map(it => ({ name:itemLabel(it), price:r2(it.price), sharedBy:it.shared.map(nameOf) })),
-      tax: r2(tax), total: r2(grand),
+      items: state.items.map(it => ({ name:itemLabel(it), price:r2(it.price), sharedBy:it.shared.map(nameOf), paidBy: it.paidBy >= 0 ? nameOf(it.paidBy) : "" })),
+      tax: r2(c.tax), total: r2(c.grand),
       payer: state.payer >= 0 ? nameOf(state.payer) : "",
-      owes: state.people.map((_,i)=>({ name:nameOf(i), amount:r2(totals[i]) }))
+      owes: state.people.map((_,i)=>({ name:nameOf(i), amount:r2(c.totals[i]), paid:r2(c.paid[i]) })),
+      transfers: c.transfers.map(t => ({ from:nameOf(t.from), to:nameOf(t.to), amount:r2(t.amount) })),
+      settled: c.known && c.anyPayer
     };
     const key = JSON.stringify(payload);
-    if(key === lastLogged) return; // same bill viewed again: don't log twice
+    if(key === lastLogged) return; // same bill again: don't log twice
     lastLogged = key;
     payload.tag = currentTag;
     const send = () => { try{ fetch(SHEET_URL, { method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain;charset=utf-8"}, body:JSON.stringify(payload) }).catch(()=>{}); }catch(e){} };
@@ -775,9 +865,7 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
   $("logNote").hidden = !SHEET_URL;
 
   $("viewBill").onclick = () => {
-    pickTag();
-    renderBill();
-    logBill(preparePdf()); // build the PDF in the background, then log the bill with it attached
+    // The bill and PDF were already prepared (and logged) when "Get the split" was tapped
     $("app").hidden = true;
     $("billView").hidden = false;
     window.scrollTo({top:0});
@@ -903,6 +991,7 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
     if(editingId === null){ selected = new Set(allIdx()); updateMsText(); }
     renderTax();
     renderPayer();
+    renderSepOptions(sepOn ? +$("sepPayer").value : -1);
     renderItems();
   }
 
