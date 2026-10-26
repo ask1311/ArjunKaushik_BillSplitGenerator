@@ -132,6 +132,16 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
 .items li.new{animation:slideIn .32s cubic-bezier(.2,.9,.3,1.2)}
 @keyframes slideIn{from{opacity:0; transform:translateY(-8px) scale(.98)}to{opacity:1; transform:none}}
 .items li.editing{background:var(--champagne); color:#000; border-color:transparent}
+.it-quick{grid-column:1/-1; display:flex; flex-direction:column; gap:8px; margin-top:8px}
+.q-row{display:flex; align-items:center; flex-wrap:wrap; gap:6px}
+.q-label{font-size:.78rem; font-weight:700; color:var(--muted); min-width:52px}
+.pchip{border:1.5px solid var(--edge); background:var(--field); color:var(--ink); border-radius:999px; padding:4px 11px; font-size:.82rem; font-weight:600; cursor:pointer; transition:background .12s, transform .08s}
+.pchip:active{transform:scale(.96)}
+.pchip.on{background:var(--lilac); color:#000}
+.pchip.all{border-style:dashed}
+.pchip.all.on{border-style:solid}
+.q-select{font:inherit; font-size:.85rem; color:var(--ink); background:var(--field); border:1.5px solid var(--edge); border-radius:999px; padding:4px 30px 4px 12px; appearance:none; -webkit-appearance:none; cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23888' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 11px center}
 .it-name{font-weight:700; display:block}
 .it-who{display:block; color:var(--muted); font-size:.86rem; margin-top:3px}
 .items li.editing .it-who{color:#000}
@@ -423,7 +433,7 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
       <p class="note" id="logNote" hidden>When you view the split bill, a copy is saved by the site owner for their records.</p>
     </section>
 
-    <!-- Version 27 -->
+    <!-- Version 28 -->
     <p class="version">Made for friends, so nobody does maths at the table.</p>
     <p class="byline">By Arjun Kaushik</p>
   </main>
@@ -642,10 +652,13 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
       const lbl = esc(itemLabel(it));
       if(it.id === editingId) li.classList.add("editing");
       if(it.id === lastAddedId) li.classList.add("new");
-      li.innerHTML = `<div><span class="it-name">${lbl}</span><span class="it-who">${esc(whoText(it.shared))}${it.paidBy >= 0 ? `, paid by ${esc(nameOf(it.paidBy))}` : ""}</span></div>
+      const quick = it.imported && it.id !== editingId;
+      li.innerHTML = `<div><span class="it-name">${lbl}</span>${quick ? "" : `<span class="it-who">${esc(whoText(it.shared))}${it.paidBy >= 0 ? `, paid by ${esc(nameOf(it.paidBy))}` : ""}</span>`}</div>
         <span class="it-price">${inr(it.price)}</span>
-        <span class="it-acts"><button class="icon-btn" data-a="ed" aria-label="Edit ${lbl}">Edit</button><button class="icon-btn del" data-a="del" aria-label="Remove ${lbl}">×</button></span>`;
+        <span class="it-acts"><button class="icon-btn" data-a="ed" aria-label="Edit ${lbl}">Edit</button><button class="icon-btn del" data-a="del" aria-label="Remove ${lbl}">×</button></span>
+        ${quick ? quickControls(it, lbl) : ""}`;
       li.querySelector('[data-a="ed"]').onclick = () => startEdit(it);
+      if(quick) wireQuick(li, it);
       li.querySelector('[data-a="del"]').onclick = () => { if(it.id === editingId) resetForm(); state.items = state.items.filter(x => x.id !== it.id); changed(); renderItems(); };
       ul.appendChild(li);
     });
@@ -655,6 +668,31 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
     $("s3").classList.toggle("locked", !state.locked || state.items.length === 0);
     const sep = state.items.some(it => it.paidBy >= 0);
     $("payerLabel").innerHTML = (sep ? "Who paid the rest of the bill?" : "Who paid the bill?") + ' <span class="opt">(optional)</span>';
+  }
+
+  /* ---------- Pasted / scanned items: choose split and payer right in the list ---------- */
+  function quickControls(it, lbl){
+    const all = it.shared.length === state.people.length;
+    const chips = state.people.map((_,i) => `<button type="button" class="pchip${it.shared.includes(i) ? " on" : ""}" data-p="${i}" aria-pressed="${it.shared.includes(i)}">${esc(nameOf(i))}</button>`).join("");
+    const payOpts = `<option value="-1">Whoever paid the bill</option>` + state.people.map((_,i) => `<option value="${i}"${it.paidBy === i ? " selected" : ""}>${esc(nameOf(i))}</option>`).join("");
+    return `<div class="it-quick">
+      <div class="q-row" role="group" aria-label="Split ${lbl} between"><span class="q-label">Split</span>
+        <button type="button" class="pchip all${all ? " on" : ""}" data-all aria-pressed="${all}">Everyone</button>${chips}</div>
+      <div class="q-row"><label class="q-label" for="qp-${it.id}">Paid by</label>
+        <select class="q-select" id="qp-${it.id}" data-pay>${payOpts}</select></div>
+    </div>`;
+  }
+  function wireQuick(li, it){
+    li.querySelectorAll(".pchip").forEach(b => b.onclick = () => {
+      if(b.hasAttribute("data-all")) it.shared = allIdx();
+      else {
+        const p = +b.dataset.p, has = it.shared.includes(p);
+        if(has && it.shared.length === 1) return;              // at least one person has to share it
+        it.shared = has ? it.shared.filter(x => x !== p) : it.shared.concat(p).sort((a,b)=>a-b);
+      }
+      changed(); renderItems();
+    });
+    li.querySelector("[data-pay]").onchange = e => { it.paidBy = +e.target.value; changed(); renderItems(); };
   }
 
   /* ---------- Scan a bill photo into line items ---------- */
@@ -1026,7 +1064,7 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
     const everyone = allIdx();
     res.items.forEach((x, k) => {
       const id = Date.now() + Math.random() + k;
-      state.items.push({ id, name:x.name, price:x.price, shared:everyone.slice(), paidBy:-1 });
+      state.items.push({ id, name:x.name, price:x.price, shared:everyone.slice(), paidBy:-1, imported:true });
       lastScanIds.push(id);
     });
     changed(); renderItems();
@@ -1118,7 +1156,7 @@ Reply with only the list, nothing else.`;
     const everyone = allIdx();
     p.items.forEach((x, k) => {
       const id = Date.now() + Math.random() + k;
-      state.items.push({ id, name: x.name, price: x.price, shared: everyone.slice(), paidBy: -1 });
+      state.items.push({ id, name: x.name, price: x.price, shared: everyone.slice(), paidBy: -1, imported:true });
       lastScanIds.push(id);
     });
     if(p.tax){ state.taxOn = true; state.tax = p.tax; renderTax(); }
