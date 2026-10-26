@@ -154,6 +154,25 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
 .switch[aria-checked="true"]{background:var(--lilac)}
 .switch[aria-checked="true"] .knob{transform:translateX(24px); background:#000}
 .tax-field{margin-top:12px; animation:drop .2s ease-out}
+.scan{display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:14px; border:2px dashed var(--edge); border-radius:16px; background:var(--soft)}
+.scan-btn{display:inline-flex; align-items:center; gap:9px; cursor:pointer}
+.scan-btn svg{width:20px; height:20px; flex:none}
+.scan .hint{margin:0; flex:1 1 180px}
+.paste-box{margin-top:12px; padding:16px; border:2px solid var(--edge); border-radius:16px; background:var(--field); animation:drop .2s ease-out}
+.paste-box[hidden]{display:none}
+.paste-step{margin:0 0 10px; font-weight:500}
+.paste-step + .btn{margin-bottom:16px}
+.paste-box textarea{resize:vertical; min-height:150px; font-family:inherit; line-height:1.5}
+#pastePreview{margin-top:10px; font-weight:600}
+.scan-status{display:flex; align-items:center; gap:14px; margin-top:12px; padding:12px; border:2px solid var(--edge); border-radius:14px; background:var(--field); animation:drop .2s ease-out}
+.scan-status[hidden]{display:none}
+.scan-status img{width:54px; height:54px; object-fit:cover; border-radius:10px; border:2px solid var(--edge); flex:none; background:var(--soft)}
+.scan-status .st{flex:1; min-width:0}
+.scan-status b{display:block; font-weight:700}
+.scan-status span{display:block; color:var(--muted); font-size:.85rem}
+.scan-bar{height:6px; border-radius:99px; background:var(--soft); margin-top:8px; overflow:hidden}
+.scan-bar i{display:block; height:100%; width:0; background:var(--lilac); border-right:2px solid #000; transition:width .3s}
+.scan-status.done .scan-bar{display:none}
 .sep-row{display:flex; align-items:center; gap:14px; padding:12px 14px; border:2px dashed var(--edge); border-radius:14px; cursor:pointer}
 .sep-row .tx{flex:1; font-weight:600; font-size:.95rem}
 .sep-row .tx small{display:block; font-weight:500; color:var(--muted); font-size:.82rem}
@@ -306,7 +325,31 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
     <!-- Step 2 -->
     <section class="card locked" id="s2">
       <div class="step-head"><span class="num">2</span><h2>What did everyone have?</h2></div>
-      <div class="item-form">
+      <div class="scan">
+        <button type="button" class="btn btn-champagne scan-btn" id="pasteOpen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4.5h6V3H9zM9 10h6M9 14h6M9 18h4"/></svg>
+          Paste bill details
+        </button>
+        <p class="hint">Get ChatGPT or Claude to read your bill photo, then paste its reply here. Or <label class="link" for="scanInput" style="padding:0">scan a photo</label> instead.</p>
+        <input type="file" id="scanInput" accept="image/*" hidden>
+      </div>
+      <div class="paste-box" id="pasteBox" hidden>
+        <p class="paste-step"><b>1.</b> Copy this prompt and send it to ChatGPT or Claude along with your bill photo.</p>
+        <button type="button" class="btn" id="copyPrompt">Copy prompt</button>
+        <p class="paste-step"><b>2.</b> Paste its reply below. Any format works: "Item - 420", a table, or a list.</p>
+        <textarea class="input" id="pasteText" rows="8" placeholder="Paneer Tikka - 420&#10;Jim Beam - 458&#10;Truffle Popcorn - 1050&#10;Tax - 135"></textarea>
+        <div class="form-actions" style="margin-top:12px">
+          <button type="button" class="btn btn-lilac" id="pasteAdd" disabled>Add items</button>
+          <button type="button" class="link" id="pasteCancel">Cancel</button>
+        </div>
+        <p class="hint" id="pastePreview" aria-live="polite"></p>
+      </div>
+      <div class="scan-status" id="scanStatus" hidden>
+        <img id="scanThumb" alt="">
+        <div class="st"><b id="scanTitle">Reading your bill…</b><span id="scanSub"></span><div class="scan-bar"><i id="scanBar"></i></div></div>
+        <button type="button" class="link" id="scanUndo" hidden>Undo</button>
+      </div>
+      <div class="item-form" style="margin-top:20px">
         <div>
           <label class="field-label" for="itemName">Item name <span class="opt">(optional)</span></label>
           <input class="input" type="text" id="itemName" placeholder="e.g. Pitcher of beer" autocomplete="off">
@@ -380,7 +423,7 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
       <p class="note" id="logNote" hidden>When you view the split bill, a copy is saved by the site owner for their records.</p>
     </section>
 
-    <!-- Version 20 -->
+    <!-- Version 27 -->
     <p class="version">Made for friends, so nobody does maths at the table.</p>
     <p class="byline">By Arjun Kaushik</p>
   </main>
@@ -614,6 +657,489 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
     $("payerLabel").innerHTML = (sep ? "Who paid the rest of the bill?" : "Who paid the bill?") + ' <span class="opt">(optional)</span>';
   }
 
+  /* ---------- Scan a bill photo into line items ---------- */
+  // 1) Google Drive's free OCR through your Google Sheet script (most accurate)
+  // 2) Free on-phone text reading as a backup
+  let lastScanIds = [];
+  function scanUI(title, sub, pct, done){
+    const box = $("scanStatus"); box.hidden = false;
+    box.classList.toggle("done", !!done);
+    if(title !== null) $("scanTitle").textContent = title;
+    if(sub !== null) $("scanSub").textContent = sub;
+    if(pct !== null) $("scanBar").style.width = Math.max(0, Math.min(100, pct)) + "%";
+    $("scanUndo").hidden = !(done && lastScanIds.length);
+  }
+  function loadImage(file){
+    return new Promise((res, rej) => {
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); res(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("bad image")); };
+      img.src = url;
+    });
+  }
+  function toCanvas(img, max, ocr){
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    const ctx = c.getContext("2d");
+    if(ocr && "filter" in ctx) ctx.filter = "grayscale(1) contrast(1.35)";
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  }
+  function cleanItems(list){
+    return (list || []).map(x => ({
+      name: String(x.name || "").replace(/\s+/g, " ").trim().slice(0, 60),
+      price: Math.round((parseFloat(String(x.price).replace(/[^\d.]/g, "")) || 0) * 100) / 100
+    })).filter(x => x.price > 0 && x.price < 1e6).slice(0, 80);
+  }
+  // Free, accurate text reading through your Google Sheet script (Google Drive's built-in OCR)
+  async function scanWithGoogle(img){
+    if(!SHEET_URL) return null;
+    const paper = findPaper(img);
+    const canvas = paper ? cropCanvas(img, paper, 2400) : toCanvas(img, 2000);
+    const image = canvas.toDataURL("image/jpeg", 0.9).split(",")[1];
+    const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 60000);
+    try{
+      const res = await fetch(SHEET_URL, { method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"},
+        body: JSON.stringify({ action:"scan", image, mediaType:"image/jpeg" }), signal: ctrl.signal });
+      const j = await res.json();
+      if(!j || !j.ok) return null;
+      if(Array.isArray(j.items)) return { items: cleanItems(j.items), subtotal: Number(j.subtotal) || null };
+      if(typeof j.text !== "string" || !j.text.trim()) return null;
+      const lines = j.text.split(/\r?\n/);
+      let best = null, bestQ = -1;
+      for(const r of [parseLines(lines), parseZip(lines)]){ const q = quality(r); if(q > bestQ){ best = r; bestQ = q; } }
+      return best;
+    } finally { clearTimeout(timer); }
+  }
+  // Some readers put all names first and all amounts after (column by column). Pair them back up in order.
+  function parseZip(lines){
+    const names = [], amounts = []; let subtotal = null, started = false;
+    for(const raw of lines){
+      const line = raw.replace(/[|_~`"“”]/g, " ").replace(/(\d)\s+([.,]\d{2})(?!\d)/g, "$1$2").replace(/\s+/g, " ").trim();
+      if(!line) continue;
+      if(HEADER.test(line)){ started = true; names.length = 0; amounts.length = 0; continue; }
+      if(STOP.test(line)){
+        const nums = (line.split(/sub\s*-?\s*total/i)[1] || line).match(/\d[\d,]*\.\d{2}/g);
+        if(nums && subtotal === null) subtotal = digitsToPrice(nums[0]);
+        if(names.length || amounts.length) break; else continue;
+      }
+      if(SKIP_START.test(line) || SKIP_ANY.test(line)) continue;
+      const toks = line.split(" ");
+      const amts = toks.map(readAmount);
+      if(amts.every(Boolean)){ const a = amts[amts.length-1]; if(/[.,]\d{2}$/.test(a.digits)) amounts.push(a); continue; }   // amount-only line
+      if(/[A-Za-z]{3}/.test(line) && !amts.some(Boolean)) names.push(line);
+    }
+    if(names.length < 2 || names.length !== amounts.length) return { items: [], subtotal };
+    const items = names.map((n, i) => ({ name: nameFrom(n.split(" ")), price: digitsToPrice(amounts[i].digits) })).filter(x => x.price > 0 && x.price <= 50000);
+    return { items: cleanItems(subtotal ? reconcile(items, subtotal) : items), subtotal };
+  }
+  function loadScript(src){
+    return new Promise((res, rej) => { const t = document.createElement("script"); t.src = src; t.onload = res; t.onerror = rej; document.head.appendChild(t); });
+  }
+  /* --- Reading a receipt: turn OCR text into line items --- */
+  const STOP = /(\bsub\s*-?\s*total|\bgrand\s*total|^\W*total\b|\btotal\s*(qty|quantity|items?|amount|amt|tax|payable)\b|\bnet\s*(amount|amt|total|payable)|\bamount\s*payable|\bbill\s*(amount|total)|\btaxable|\bpay\s*:)/i;
+  const HEADER = /^\W*(item|items|description|particulars|dish)\b.*\b(qty|quantity|amount|amt|price|rate|total)\b|\b(qty|aty|qy|quantity)\b.*\b(amt|amount|price)\b/i;
+  const SKIP_START = /^\W*(table|tbl|cover|covers|pax|guests?|bill\s*(no|#|number)|kot|order\s*(no|#|id|details)|date|time|cashier|waiter|steward|captain|server|gstin|fssai|ph(one)?|mob(ile)?|tel|invoice|token|branch|pin\b|s\.?\s*no)/i;
+  const SKIP_ANY = /\b(?:gstin|fssai|hsn|sac|cgst|sgst|igst|utgst|vat|gst|service\s*(?:charge|chg)|round(?:ed)?\s*off|discount|tips?|phone|email|e-mail|www|road|street|feet|nagar|layout|table\s*no|bill\s*no|steward|waiter|cashier|pax|pvt|ltd|llp)\b|\b(?:time|date)\s*[:;]|\w@\w|\.(?:in|com)\b/i;
+  const MONEY = /^(\d{1,3}(?:,\d{2,3})+|\d+)(?:[.,](\d{1,2}))?$/;
+  function fixDigits(tok){
+    // OCR often reads 0 as O, 1 as l/I, 5 as S inside numbers
+    return /\d/.test(tok) && /^[^A-Za-z]*[\dOoIlS,.]+[^A-Za-z]*$/.test(tok) ? tok.replace(/[Oo]/g,"0").replace(/[Il]/g,"1").replace(/S/g,"5") : tok;
+  }
+  function readAmount(tok){
+    // "₹155.00", "%65.00", "&209.00" → symbol + digits; "2155.00" may hide a ₹ read as a digit
+    const t = fixDigits(tok).replace(/[^\d]+$/, "");
+    const m = t.match(/^(₹|rs\.?|inr|[^\w\s]{1,2}|[FfZzS])?(\d[\d,]*(?:[.,]\d{1,2})?)$/);
+    if(!m || !MONEY.test(m[2])) return null;
+    return { digits: m[2], sym: !!m[1], symChar: m[1] || "" };
+  }
+  function digitsToPrice(d){
+    let t = /^\d+,\d{2}$/.test(d) ? d.replace(",", ".") : d;   // 240,00 → 240.00
+    t = t.replace(/,/g, "");
+    if(/^\d{6,}/.test(t)) return NaN;                         // phone numbers, pin codes, bill numbers
+    return parseFloat(t);
+  }
+  function nameFrom(toks){
+    let words = toks.filter(t => /[A-Za-z]/.test(t) || t === "&").map(t => t === "&" ? t : t.replace(/[^\w&'()\/+.-]/g, ""))
+      .filter(t => t === "&" || t.replace(/[^A-Za-z]/g,"").length >= 2 || /^\d+(ml|l|g|gm|kg|pc|pcs)\)?$/i.test(t));
+    while(words.length && words[0] === "&") words.shift();
+    while(words.length && words[words.length-1] === "&") words.pop();
+    let n = words.map(w => /^[A-Z]{2,4}$/.test(w) && !/^(THE|AND|WITH|HALF|PINT|EACH)$/.test(w) ? w : w.toLowerCase().replace(/\b([a-z])/g, c => c.toUpperCase())).join(" ");
+    n = n.replace(/^[\/.\-]+/, "").replace(/\s+/g, " ").trim();
+    if((n.match(/\(/g)||[]).length !== (n.match(/\)/g)||[]).length) n = n.replace(/[()]/g, "");
+    return n;
+  }
+  const looksLikeNamePart = t => {
+    const w = t.replace(/^[^A-Za-z]+/, "").trim().split(/\s+/);
+    return /^[A-Z]/.test(w[0] || "") && w.length <= 5 && w.every(x => /^[A-Za-z][A-Za-z'&.\-]*$/.test(x)) && w.some(x => x.length >= 4);
+  };
+  function parseLines(lines){
+    const rows = [], all = lines.join("\n");
+    let subtotal = null;
+    for(const raw of lines){
+      const line = raw.replace(/[|_~`"“”]/g, " ").replace(/\((\d+)\s+(pcs?|ml|gm?|kg)\)/gi, "($1$2)").replace(/(\d)\s+([.,]\d{2})(?!\d)/g, "$1$2").replace(/(\d)[-~](\d{2})(?![\d-])/g, "$1.$2").replace(/\s+/g, " ").trim();
+      if(!line) continue;
+      if(STOP.test(line)){
+        const after = line.split(/sub\s*-?\s*total/i)[1] || line, nums = after.match(/\d[\d,]*\.\d{2}/g);
+        if(nums && subtotal === null) subtotal = digitsToPrice(nums[/sub\s*-?\s*total/i.test(line) ? 0 : nums.length-1]);
+        rows.push({ type:"stop" }); continue;
+      }
+      if(HEADER.test(line)){ rows.push({ type:"header" }); continue; }
+      if(SKIP_START.test(line) || SKIP_ANY.test(line)){ rows.push({ type:"skip" }); continue; }
+      const toks = line.split(" ").filter(Boolean);
+      let amt = null, at = -1;
+      for(let i = toks.length - 1; i >= 0; i--){ amt = readAmount(toks[i]); if(amt){ at = i; break; } }
+      if(amt && at === 0 && !/[.,]\d{2}$/.test(amt.digits)){ amt = null; at = -1; }   // a leading number is a qty or noise, not a price
+      if(!amt){ rows.push({ type:"name", text:line }); continue; }
+      if(at > 0 && /^[^\w\s]{1,2}$/.test(toks[at-1])) amt.sym = true;   // "« 458.00": ₹ read as a lone symbol
+      const firstWord = toks.slice(0, at).find(t => /[A-Za-z]{2}/.test(t)) || "";
+      rows.push({ type:"item", name:nameFrom(toks.slice(0, at)), digits:amt.digits, sym:amt.sym, symChar:amt.symChar, lowerStart:/^[a-z]/.test(firstWord.replace(/^[^A-Za-z]+/, "")) });
+    }
+    // Items sit between the column header (if any) and the subtotal/total
+    const h = rows.map(r => r.type).lastIndexOf("header", rows.findIndex(r => r.type === "stop") >>> 0);
+    let start = 0;
+    if(h >= 0 && rows.slice(h + 1).some(r => r.type === "item")) start = h + 1;
+    const items = [];
+    for(let i = start; i < rows.length; i++){
+      const r = rows[i];
+      if(r.type === "stop"){ if(items.length) break; else continue; }
+      if(r.type === "name"){
+        const prev = rows[i-1], next = rows[i+1];
+        if(next && next.type === "item" && looksLikeNamePart(r.text) && (!next.name || next.name.split(" ").length === 1 || next.lowerStart)){
+          // Name starts on the line above its amount. "Chicken Win" + "gs Each" → "Chicken Wings Each"
+          const head = nameFrom(r.text.split(" ")), tail = next.name;
+          next.name = (next.lowerStart && tail ? head + tail.charAt(0).toLowerCase() + tail.slice(1) : (head + " " + tail)).trim();
+          continue;
+        }
+        if(prev && prev.type === "item" && items.length && looksLikeNamePart(r.text)){                       // long name wrapped onto a second line
+          items[items.length-1].name = (items[items.length-1].name + " " + nameFrom(r.text.split(" "))).trim();
+        }
+        continue;
+      }
+      if(r.type === "item") items.push(r);
+    }
+    // Bills that print ₹ before every amount: OCR turns ₹ into a symbol or a stray leading digit (often 2)
+    const symCount = items.filter(x => x.sym).length;
+    const intPart = x => x.digits.split(/[.,]\d{1,2}$/)[0].replace(/,/g, "");
+    const lead = {}; items.forEach(x => { if(!x.sym && intPart(x).length >= 3) lead[x.digits[0]] = (lead[x.digits[0]] || 0) + 1; });
+    const topLead = Object.keys(lead).sort((a,b) => lead[b] - lead[a])[0];
+    const rupeeMode = symCount >= 3 || (items.length >= 3 && symCount / items.length >= 0.3)
+      || (items.length >= 5 && topLead && /[27]/.test(topLead) && lead[topLead] / items.length >= 0.6);
+    if(rupeeMode){
+      const glued = items.filter(x => !x.sym && intPart(x).length >= 2);
+      const counts = {}; glued.forEach(x => counts[x.digits[0]] = (counts[x.digits[0]] || 0) + 1);
+      const top = Object.keys(counts).sort((a,b) => counts[b] - counts[a])[0];
+      if(top && counts[top] >= Math.max(2, glued.length * 0.5)) glued.forEach(x => { if(x.digits[0] === top && intPart(x).length >= 3) x.digits = x.digits.slice(1).replace(/^,/, ""); });
+      // A 4+ digit amount without a comma, among ₹ amounts, usually hides another misread ₹ (8209 → 209)
+      glued.forEach(x => { if(!x.digits.includes(",") && intPart(x).length >= 4 && /^[2378]/.test(x.digits)) x.digits = x.digits.slice(1); });
+    } else {
+      items.forEach(x => { if(/^[$S§]$/.test(x.symChar)) x.digits = "5" + x.digits; });   // "$00.00" on paper is usually 500.00
+    }
+    // A bare single-digit number is a stray qty or OCR noise, not a price
+    let out = items.filter(x => !(digitsToPrice(x.digits) < 10 && !/[.,]\d{2}$/.test(x.digits))).map(x => ({ name:x.name, price:digitsToPrice(x.digits) }));
+    // Most bills end in .00; a stray .06/.09 is usually an OCR slip
+    const whole = out.filter(x => Number.isInteger(x.price)).length;
+    if(out.length && whole / out.length >= 0.6) out = out.map(x => ({ name:x.name, price: (x.price % 1) < 0.1 ? Math.floor(x.price) : x.price }));
+    out = out.filter(x => x.price > 0 && x.price <= 50000);
+    if(subtotal) out = reconcile(out, subtotal);
+    return { items: cleanItems(out), subtotal };
+  }
+  // If the items don't add up to the printed subtotal, try fixing one or two digits OCR commonly mixes up
+  const CONFUSE = { "0":"986", "9":"08", "8":"0365", "6":"058", "1":"74", "7":"12", "3":"89", "5":"68", "2":"7", "4":"1" };
+  function variants(price){
+    const str = price.toFixed(2), res = [];
+    for(let i = 0; i < str.length; i++){
+      const alts = CONFUSE[str[i]] || "";
+      for(const a of alts){ const v = parseFloat(str.slice(0, i) + a + str.slice(i + 1)); if(v !== price) res.push(v); }
+    }
+    return res;
+  }
+  function reconcile(items, subtotal){
+    const sum = items.reduce((a,x)=>a+x.price,0), diff = Math.round((subtotal - sum) * 100) / 100;
+    if(Math.abs(diff) <= 1 || items.length > 40) return items;
+    const near = (a,b) => Math.abs(a - b) < 0.005;
+    const singles = [];
+    items.forEach((x,i) => variants(x.price).forEach(v => { if(near(v - x.price, diff)) singles.push([[i,v]]); }));
+    let fix = singles.length === 1 ? singles[0] : null;
+    if(!fix && !singles.length){
+      const pairs = [];
+      const opts = items.map(x => variants(x.price));
+      for(let i = 0; i < items.length && pairs.length < 3; i++) for(let j = i + 1; j < items.length && pairs.length < 3; j++)
+        for(const a of opts[i]) for(const b of opts[j]) if(near((a - items[i].price) + (b - items[j].price), diff)) pairs.push([[i,a],[j,b]]);
+      if(pairs.length === 1) fix = pairs[0];
+    }
+    if(!fix) return items;                 // no single clear fix: leave it and show the mismatch warning
+    const copy = items.map(x => ({ ...x }));
+    fix.forEach(([i,v]) => copy[i].price = v);
+    return copy;
+  }
+  // Rebuild each printed row from word positions, so names and prices in separate columns stay together
+  function rowsFromWords(words){
+    const ws = (words || []).filter(w => w.text && w.text.trim() && w.bbox)
+      .map(w => ({ t:w.text.trim(), x:w.bbox.x0, y:(w.bbox.y0 + w.bbox.y1)/2, h:Math.max(1, w.bbox.y1 - w.bbox.y0) }));
+    if(!ws.length) return [];
+    const hs = ws.map(w => w.h).sort((a,b)=>a-b), mh = hs[Math.floor(hs.length/2)];
+    // If there's an ITEM column header, anything left of it is background noise (table, wallet, fingers)
+    const head = ws.find(w => /^item(s)?:?$/i.test(w.t) && ws.some(q => /^(qty|amt|amount|price|rate)\W*$/i.test(q.t) && Math.abs(q.y - w.y) < mh * 1.5));
+    let left = head ? head.x - mh * 1.2 : null;
+    if(left === null){
+      // No header found: the name column is where most rows start a word with letters
+      const bins = {};
+      ws.filter(w => /[A-Za-z]{3}/.test(w.t)).forEach(w => { const b = Math.round(w.x / mh); bins[b] = (bins[b] || 0) + 1; });
+      const xs = ws.map(w => w.x), span = Math.max(...xs) - Math.min(...xs);
+      const top = Object.keys(bins).filter(b => b * mh < Math.min(...xs) + span * 0.5).sort((a,b) => bins[b] - bins[a])[0];
+      if(top !== undefined && bins[top] >= 4) left = top * mh - mh * 1.2;
+    }
+    const list = left !== null ? ws.filter(w => w.x >= left) : ws;
+    list.sort((a,b) => a.y - b.y);
+    const rows = [];
+    list.forEach(w => {
+      const r = rows.find(r => Math.abs(r.y - w.y) < mh * 0.55);
+      if(r){ r.w.push(w); r.y = r.w.reduce((s,q)=>s+q.y,0) / r.w.length; } else rows.push({ y:w.y, w:[w] });
+    });
+    return rows.sort((a,b)=>a.y-b.y).map(r => r.w.sort((a,b)=>a.x-b.x).map(w => w.t).join(" "));
+  }
+  // Clean black-on-white version of the photo. Handles light text on dark app screens,
+  // striped rows, shadows and uneven light by comparing each pixel with its neighbourhood.
+  function binarize(src, bright){
+    const c = document.createElement("canvas"); c.width = src.width; c.height = src.height;
+    const ctx = c.getContext("2d"); ctx.drawImage(src, 0, 0);
+    const W = c.width, H = c.height, d = ctx.getImageData(0, 0, W, H), p = d.data, g = new Float32Array(W * H);
+    for(let i = 0, j = 0; i < p.length; i += 4, j++) g[j] = 0.299*p[i] + 0.587*p[i+1] + 0.114*p[i+2];
+    const S = new Float64Array((W + 1) * (H + 1));
+    for(let y = 0; y < H; y++){ let row = 0; for(let x = 0; x < W; x++){ row += g[y*W + x]; S[(y+1)*(W+1) + x + 1] = S[y*(W+1) + x + 1] + row; } }
+    const r = Math.max(8, Math.round(Math.min(W, H) / 60)), T = bright ? 30 : 20;
+    for(let y = 0; y < H; y++){
+      const y0 = Math.max(0, y - r), y1 = Math.min(H, y + r + 1);
+      for(let x = 0; x < W; x++){
+        const x0 = Math.max(0, x - r), x1 = Math.min(W, x + r + 1);
+        const m = (S[y1*(W+1)+x1] - S[y0*(W+1)+x1] - S[y1*(W+1)+x0] + S[y0*(W+1)+x0]) / ((y1-y0)*(x1-x0));
+        const v = g[y*W + x], ink = bright ? v - m > T : m - v > T, o = (y*W + x) * 4;
+        p[o] = p[o+1] = p[o+2] = ink ? 0 : 255; p[o+3] = 255;
+      }
+    }
+    ctx.putImageData(d, 0, 0);
+    return c;
+  }
+  function brightness(img){
+    const c = toCanvas(img, 200, false), p = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    let s = 0; for(let i = 0; i < p.length; i += 4) s += 0.299*p[i] + 0.587*p[i+1] + 0.114*p[i+2];
+    return s / (p.length / 4);
+  }
+  // Find a paper receipt in the photo (the biggest bright area) so we can zoom in on it
+  function findPaper(img){
+    const c = toCanvas(img, 400, false), W = c.width, H = c.height, p = c.getContext("2d").getImageData(0, 0, W, H).data;
+    const mask = new Uint8Array(W * H), lab = new Int32Array(W * H);
+    for(let i = 0, j = 0; i < p.length; i += 4, j++) mask[j] = (0.299*p[i] + 0.587*p[i+1] + 0.114*p[i+2]) > 145 ? 1 : 0;
+    let best = null, id = 0;
+    for(let start = 0; start < W * H; start++){
+      if(!mask[start] || lab[start]) continue;
+      id++; let n = 0, x0 = W, y0 = H, x1 = 0, y1 = 0; const stack = [start]; lab[start] = id;
+      while(stack.length){
+        const k = stack.pop(), x = k % W, y = (k / W) | 0; n++;
+        if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y;
+        if(x > 0 && mask[k-1] && !lab[k-1]){ lab[k-1] = id; stack.push(k-1); }
+        if(x < W-1 && mask[k+1] && !lab[k+1]){ lab[k+1] = id; stack.push(k+1); }
+        if(y > 0 && mask[k-W] && !lab[k-W]){ lab[k-W] = id; stack.push(k-W); }
+        if(y < H-1 && mask[k+W] && !lab[k+W]){ lab[k+W] = id; stack.push(k+W); }
+      }
+      if(!best || n > best.n) best = { n, x0, y0, x1, y1 };
+    }
+    if(!best) return null;
+    const frac = best.n / (W * H);
+    if(frac < 0.08 || frac > 0.85) return null;   // no clear receipt, or the receipt already fills the photo
+    const k = img.naturalWidth / W, pad = 0.005 * Math.max(img.naturalWidth, img.naturalHeight);
+    const sx = Math.max(0, best.x0 * k - pad), sy = Math.max(0, best.y0 * k - pad);
+    return { sx, sy, sw: Math.min(img.naturalWidth - sx, (best.x1 - best.x0 + 1) * k + 2 * pad), sh: Math.min(img.naturalHeight - sy, (best.y1 - best.y0 + 1) * k + 2 * pad) };
+  }
+  function cropCanvas(img, box, max){
+    const k = max / Math.max(box.sw, box.sh), c = document.createElement("canvas");
+    c.width = Math.round(box.sw * k); c.height = Math.round(box.sh * k);
+    const ctx = c.getContext("2d"); ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, box.sx, box.sy, box.sw, box.sh, 0, 0, c.width, c.height);
+    return c;
+  }
+  // How believable a reading is: matching the printed subtotal beats everything, then count and clean names
+  function quality(res){
+    const sum = res.items.reduce((a,x)=>a+x.price,0);
+    res.match = !!res.subtotal && Math.abs(res.subtotal - sum) <= 1;
+    const clean = res.items.filter(x => /^[A-Z][A-Za-z]/.test(x.name) && x.name.split(" ").every(w => w.length >= 2)).length;
+    return (res.match ? 1000 : 0) + res.items.length * 10 + clean * 3;
+  }
+  async function scanOnPhone(img){
+    if(!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
+    let stage = 0, total = 2;
+    const worker = await Tesseract.createWorker("eng", 1, { logger: m => {
+      if(m.status === "recognizing text") scanUI(null, "Reading the text on the bill", 35 + (stage + m.progress) / total * 60, false);
+    }});
+    try{
+      // Treat the bill as one block of rows instead of separate columns
+      await worker.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1" });
+      const paper = findPaper(img);
+      const light = brightness(img) >= 110;
+      const attempts = paper
+        ? [() => binarize(cropCanvas(img, paper, 2000), false), () => binarize(cropCanvas(img, paper, 2600), false), () => binarize(toCanvas(img, 1600, false), false)]
+        : [() => binarize(toCanvas(img, 1600, false), !light), () => binarize(toCanvas(img, 1600, false), light), () => toCanvas(img, 2000, true)];
+      total = attempts.length;
+      let best = null, bestQ = -1;
+      for(const make of attempts){
+        const { data } = await worker.recognize(make());
+        for(const res of [parseLines(rowsFromWords(data.words)), parseLines((data.text || "").split(/\r?\n/))]){
+          const q = quality(res);
+          if(q > bestQ){ best = res; bestQ = q; }
+        }
+        stage++;
+        if(best && best.match) break;      // matches the printed subtotal: done
+        if(best && !best.subtotal && best.items.length >= 4 && quality(best) >= best.items.length * 12) break;   // no subtotal printed, but a clean read
+      }
+      return best;
+    } finally { worker.terminate(); }
+  }
+  async function scanBill(file){
+    lastScanIds = [];
+    scanUI("Reading your bill…", "Getting the photo ready", 6, false);
+    let img;
+    try{ img = await loadImage(file); }
+    catch(e){ scanUI("Couldn't open that image", "Try a JPG or PNG photo of the bill.", 0, true); return; }
+    $("scanThumb").hidden = false; undoTax = null;
+    $("scanThumb").src = toCanvas(img, 160).toDataURL("image/jpeg", 0.7);
+    let res = null, how = "";
+    try{
+      scanUI(null, "Finding the line items", 30, false);
+      res = await scanWithGoogle(img);
+      if(res && res.items.length){ how = "Read with Google"; quality(res); }
+    }catch(e){ res = null; }
+    const good = r => r && r.items.length && (r.match || (!r.subtotal && r.items.length >= 3));
+    if(!good(res)){
+      // Not confident yet: also read it on the phone and keep whichever reading is better
+      try{
+        scanUI(null, "Double-checking on your phone, this can take a few seconds", 40, false);
+        const phone = await scanOnPhone(img);
+        if(phone && (!res || quality(phone) > quality(res))){ res = phone; how = "Read on your phone"; }
+      }catch(e){}
+    }
+    if(!res || !res.items.length){
+      scanUI("Couldn't spot any items", "Try a sharp, straight-on photo in good light, or add them by hand below.", 0, true);
+      return;
+    }
+    const everyone = allIdx();
+    res.items.forEach((x, k) => {
+      const id = Date.now() + Math.random() + k;
+      state.items.push({ id, name:x.name, price:x.price, shared:everyone.slice(), paidBy:-1 });
+      lastScanIds.push(id);
+    });
+    changed(); renderItems();
+    const sum = res.items.reduce((a,x)=>a+x.price,0);
+    let sub = "Check names and prices, then tap Edit on any item to set who shared it.";
+    if(res.subtotal && Math.abs(res.subtotal - sum) > 1){
+      sub = `Heads up: these add up to ${inr(sum)} but the bill's subtotal says ${inr(res.subtotal)}. Something may be missing or misread.`;
+    } else if(res.subtotal){
+      sub = `Matches the bill's subtotal of ${inr(res.subtotal)}. Tap Edit on any item to set who shared it.`;
+    }
+    scanUI(`Added ${res.items.length} item${res.items.length===1?"":"s"} (${inr(sum)})`, `${sub} ${how}.`, 100, true);
+  }
+  $("scanInput").addEventListener("change", e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if(f) scanBill(f); });
+  /* ---------- Paste bill details (from ChatGPT, Claude, or typed) ---------- */
+  const PASTE_PROMPT = `Read this restaurant bill and list every ordered item with its amount, one per line, exactly like this:
+Item name - amount
+
+Rules:
+- Use the line's amount column (quantity already multiplied in). Numbers only, no ₹ sign.
+- Keep the item names as printed.
+- Skip items that cost 0, and skip subtotal, total, discounts and round-off.
+- On the last line write: Tax - <total of GST/CGST/SGST/VAT and service charge> (write Tax - 0 if there's none).
+Reply with only the list, nothing else.`;
+  let undoTax = null;
+  function parsePasted(text){
+    const out = { items: [], tax: 0, subtotal: null };
+    const t = text.trim();
+    if(!t) return out;
+    // JSON, if someone pastes that
+    if(/^[\[{]/.test(t)){
+      try{
+        const j = JSON.parse(t), list = Array.isArray(j) ? j : (j.items || []);
+        list.forEach(x => { const p = parseFloat(String(x.price ?? x.amount ?? x.total ?? "").replace(/[^\d.]/g, "")); if(p > 0) out.items.push({ name: String(x.name || x.item || "").trim(), price: p }); });
+        const tx = parseFloat(String(j.tax ?? "").replace(/[^\d.]/g, "")); if(tx > 0) out.tax = tx;
+        out.items = cleanItems(out.items); return out;
+      }catch(e){ /* not JSON, read it as text */ }
+    }
+    const moneyRe = /(?:₹|rs\.?|inr)?\s*(\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\s*(?:\/-|rs|inr)?\s*$/i;
+    t.split(/\r?\n/).forEach(raw => {
+      let line = raw.trim();
+      if(!line || /^[|\s:\-–—=]+$/.test(line)) return;                    // blank lines and table borders
+      if(line.includes("|")){                                              // markdown table row
+        const cells = line.split("|").map(c => c.trim()).filter(Boolean);
+        if(cells.length < 2 || cells.every(c => !/\d/.test(c))) return;    // header row
+        const nameCell = cells.find(c => /[A-Za-z]/.test(c)) || "";
+        const amtCell = [...cells].reverse().find(c => /\d/.test(c) && !/[A-Za-z]{3}/.test(c)) || "";
+        line = nameCell + " - " + amtCell;
+      }
+      line = line.replace(/\*\*/g, "").replace(/^\s*(?:[-*•·]|\d+[.)])\s+/, "");   // bullets, numbering, bold
+      const m = line.match(moneyRe);
+      if(!m) return;
+      const price = parseFloat(m[1].replace(/,/g, ""));
+      let name = line.slice(0, m.index).replace(/[\s:\-–—=@]+$/, "").replace(/\s+[x×@]$/i, "").replace(/[\s:\-–—=]+$/, "").replace(/\s+/g, " ").trim();
+      if(/\b(sub\s*-?\s*total)\b/i.test(name)){ if(price > 0) out.subtotal = price; return; }
+      if(/\b(grand\s*total|total|round\s*off|discount|amount\s*payable|net)\b/i.test(name) && !/\btax\b/i.test(name)) return;
+      if(/\b(tax|gst|cgst|sgst|igst|vat|service\s*(charge|chg|tax))\b/i.test(name)){ if(price > 0) out.tax += price; return; }
+      if(price > 0 && price <= 500000) out.items.push({ name, price });
+    });
+    out.items = cleanItems(out.items);
+    out.tax = r2(out.tax);
+    return out;
+  }
+  function pasteSummary(p){
+    if(!p.items.length) return "";
+    const sum = p.items.reduce((a,x)=>a+x.price,0);
+    let txt = `Found ${p.items.length} item${p.items.length===1?"":"s"} (${inr(sum)})`;
+    if(p.tax) txt += ` + tax ${inr(p.tax)}`;
+    return txt;
+  }
+  $("pasteOpen").onclick = () => {
+    const box = $("pasteBox"); box.hidden = !box.hidden;
+    if(!box.hidden) $("pasteText").focus();
+  };
+  $("pasteCancel").onclick = () => { $("pasteBox").hidden = true; };
+  $("copyPrompt").onclick = async () => {
+    try{ await navigator.clipboard.writeText(PASTE_PROMPT); $("copyPrompt").textContent = "Copied. Now send it with your photo"; }
+    catch(e){ $("pasteText").value = PASTE_PROMPT; $("pasteText").select(); $("copyPrompt").textContent = "Copy the selected text"; }
+    setTimeout(() => $("copyPrompt").textContent = "Copy prompt", 3000);
+  };
+  $("pasteText").addEventListener("input", () => {
+    const p = parsePasted($("pasteText").value);
+    $("pastePreview").textContent = p.items.length ? pasteSummary(p) : ($("pasteText").value.trim() ? "No items with amounts found yet." : "");
+    $("pasteAdd").disabled = !p.items.length;
+  });
+  $("pasteAdd").onclick = () => {
+    const p = parsePasted($("pasteText").value);
+    if(!p.items.length) return;
+    lastScanIds = []; undoTax = { taxOn: state.taxOn, tax: state.tax };
+    const everyone = allIdx();
+    p.items.forEach((x, k) => {
+      const id = Date.now() + Math.random() + k;
+      state.items.push({ id, name: x.name, price: x.price, shared: everyone.slice(), paidBy: -1 });
+      lastScanIds.push(id);
+    });
+    if(p.tax){ state.taxOn = true; state.tax = p.tax; renderTax(); }
+    changed(); renderItems();
+    $("pasteText").value = ""; $("pastePreview").textContent = ""; $("pasteAdd").disabled = true; $("pasteBox").hidden = true;
+    $("scanThumb").removeAttribute("src"); $("scanThumb").hidden = true;
+    const sum = p.items.reduce((a,x)=>a+x.price,0);
+    let sub = "Tap Edit on any item to set who shared it.";
+    if(p.subtotal && Math.abs(p.subtotal - sum) > 1) sub = `Heads up: these add up to ${inr(sum)} but the subtotal says ${inr(p.subtotal)}. Something may be missing.`;
+    scanUI(`${pasteSummary(p).replace("Found", "Added")}`, sub + (p.tax ? " Tax switched on." : ""), 100, true);
+  };
+
+  $("scanUndo").onclick = () => {
+    const ids = new Set(lastScanIds);
+    if(editingId !== null && ids.has(editingId)) resetForm();
+    state.items = state.items.filter(it => !ids.has(it.id));
+    if(undoTax){ state.taxOn = undoTax.taxOn; state.tax = undoTax.tax; undoTax = null; renderTax(); }
+    lastScanIds = []; changed(); renderItems();
+    $("scanStatus").hidden = true;
+  };
+
   /* ---------- Tax toggle ---------- */
   function renderTax(){
     $("taxToggle").setAttribute("aria-checked", state.taxOn ? "true" : "false");
@@ -746,6 +1272,7 @@ select.input{appearance:none; -webkit-appearance:none; cursor:pointer; padding-r
   $("resetBtn").onclick = () => {
     if(!confirm("Clear this bill and start a new one?")) return;
     state = fresh(); resetForm(); renderAll(); changed();
+    lastScanIds = []; $("scanStatus").hidden = true;
     window.scrollTo({top:0});
   };
 
